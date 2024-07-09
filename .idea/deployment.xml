@@ -1,7 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="k8s@192.168.81.26:43842 password" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="AO_MARL_MAIN" remoteFilesAllowedToDisappearOnAutoupload="false">
     <serverData>
+      <paths name="AO_MARL_MAIN">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/zhangyanna/project/AO_MAPL" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
       <paths name="k8s@192.168.81.26:33255 password">
         <serverdata>
           <mappings>
@@ -10,13 +17,6 @@
         </serverdata>
       </paths>
       <paths name="k8s@192.168.81.26:37231 password (4)">
-        <serverdata>
-          <mappings>
-            <mapping deploy="/zhangyanna/project/AO_MAPL" local="$PROJECT_DIR$" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="k8s@192.168.81.26:43842 password">
         <serverdata>
           <mappings>
             <mapping deploy="/zhangyanna/project/AO_MAPL" local="$PROJECT_DIR$" />
