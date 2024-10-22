@@ -108,9 +108,9 @@ class Config:
 
         self.env_rl['reward_mode'] = str(config['env_rl_parameters']['reward_mode'])
 
-        self.env_rl['n_zernike_start_end'] = [0, 1260]
+        self.env_rl['n_zernike_start_end'] = [0, 80]
         self.env_rl['n_reverse_filtered_from_cmat'] = 5
-        self.env_rl['include_tip_tilt'] = "True"
+        self.env_rl['include_tip_tilt'] = "False"
 
         # Related to reward
 
@@ -130,6 +130,7 @@ class Config:
 
         self.env_rl['create_norm_param'] = str(config['env_rl_parameters']['create_norm_param'])
         self.env_rl['window_n_zernike'] = -1
+        self.env_rl['save_dict'] = str(config['env_rl_parameters']['save_dict'])
 
         self.env_rl['do_more_evaluations'] = "False"
         self.env_rl['change_atmospheric_3_layers_1'] = "False"
@@ -261,7 +262,8 @@ class Config:
         self.env_rl["custom_freedom_path"] = args.custom_freedom_path
         self.env_rl["load_previous_weights"] = True if args.load_previous_weights == "True" else False
 
-        self.env_rl['create_norm_param'] = True if args.create_norm_param == "True" else False
+        self.env_rl['create_norm_param'] = bool(args.create_norm_param)
+        self.env_rl['save_dict'] = args.save_dict
 
         self.env_rl['n_reverse_filtered_from_cmat'] = int(args.n_reverse_filtered_from_cmat)
 

@@ -66,10 +66,13 @@ class TrainerRPC:
         self.master_rref = RRef(self)
         self.world_size = world_size
         self.num_gpus = num_gpus
+        self.sr_list = []
+        # self.save_dict = config_rl.env_rl['save_dict']
 
-        folder = "output4/output_models/models_rpc/" + experiment_name + "/"
+        folder = "output12/output_models/models_rpc/" + experiment_name + "/"
         if not os.path.exists(folder):
             os.makedirs(folder)
+
 
         # 1) Initializing AO env
 
@@ -122,7 +125,7 @@ class TrainerRPC:
         self.num_test_episode, self.num_episode = 0, 0
         self.delayed_mdp_object = None
         self.max_num_steps = 5e6  #最大步长
-        self.save_networks_every_episodes = 50
+        self.save_networks_every_episodes = 5
 
         print("-----------------------------RPC TRAINING-----------------------------")
 
@@ -211,6 +214,9 @@ class TrainerRPC:
         self.writer_performance.add_scalar('Evaluation_Strehl_SE/Error_SR_SE', rl_performance_dict['sr_se_test'] -
                                            linear_performance_dict['sr_se_test'],
                                            self.total_step)
+        self.sr_list.append(rl_performance_dict['sr_se_test'])
+        np.save(f"output12/sr_list",self.sr_list)
+
 
     def manage_saving_networks(self):
 
@@ -1140,7 +1146,7 @@ class SAC(object):
     def save_model(self, experiment_name, episode, modes_controlled, worker_id):
         assert worker_id == self.worker_id
 
-        folder = "output4/output_models/models_rpc/" + experiment_name + "/"
+        folder = "output12/output_models/models_rpc/" + experiment_name + "/"
         if not os.path.exists(folder):
             os.makedirs(folder)
 

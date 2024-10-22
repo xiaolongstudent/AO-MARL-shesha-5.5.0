@@ -107,7 +107,7 @@ class OfflineDatasetObtainer:
                   "Gain:", round(self.env.supervisor.rtc._rtc.d_control[0].gain, 3),
                   "L.E. SR:", round(self.env.supervisor.target.get_strehl(0)[1], 5))
 
-        save_folder = "output4/autoencoder/output_dataset_autoencoder/"
+        save_folder = "output12/autoencoder/output_dataset_autoencoder/"
         if not os.path.exists(save_folder):
             os.makedirs(save_folder)
         save_path_noise3 = "noise3_image_" + self.parameter_file_name + "_small"
@@ -126,7 +126,7 @@ class ExperimentManager:
         self.autoencoder_p = None
         self.pure_delay_0 = True
         self.seed = args.seed
-        self.parameter_file = "production_sh_40x40_8m_3layers_d0_noise.py" #args.parameter_file
+        self.parameter_file = "production_sh_10x10_2m.py" #args.parameter_file
         self.num_filtered = args.num_filtered
 
     def run(self):

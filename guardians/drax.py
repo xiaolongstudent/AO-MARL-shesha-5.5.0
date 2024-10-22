@@ -554,7 +554,7 @@ def plotCovCor(filename, maparico=None, plot=False, include_anisoplanatism=True,
     plt.yticks(x, labels)
     if plot:
         par_real = filename.split("/")[-1]
-        out_folder_cov = "output/error_budget/h5_files/roket_output/cov_" + par_real[:-3] + ".png"
+        out_folder_cov = "output12/error_budget/h5_files/roket_output/cov_" + par_real[:-3] + ".png"
         # out_folder_cov = "h5_files/outputs/cov_" + filename[9:-3] + ".png"
         plt.savefig(out_folder_cov)
         plt.savefig(out_folder_cov[:-4] + ".pdf", bbox_inches='tight')
@@ -567,7 +567,7 @@ def plotCovCor(filename, maparico=None, plot=False, include_anisoplanatism=True,
     plt.yticks(x, labels)
     if plot:
         par_real = filename.split("/")[-1]
-        out_folder_cor = "output/error_budget/h5_files/roket_output/cor_" + par_real[:-3] + ".png"
+        out_folder_cor = "output12/error_budget/h5_files/roket_output/cor_" + par_real[:-3] + ".png"
         plt.savefig(out_folder_cor)
         plt.close()
 

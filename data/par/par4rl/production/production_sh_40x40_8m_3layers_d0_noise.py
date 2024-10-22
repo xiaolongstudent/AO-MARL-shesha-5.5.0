@@ -69,7 +69,7 @@ p_targets = [p_target0]
 
 # p_target0.set_ntargets(1)
 # p_target0.set_dms_seen([0, 1])
-p_target0.set_dms_seen([0])
+p_target0.set_dms_seen([0,1])
 p_target0.set_xpos(0.)
 p_target0.set_ypos(0.)
 p_target0.set_Lambda(1.65)
@@ -78,13 +78,13 @@ p_target0.set_mag(10.)
 # wfs
 p_wfs0 = conf.Param_wfs()
 p_wfs_noise_minus1 = conf.Param_wfs()
-p_wfss = [p_wfs0, p_wfs_noise_minus1]
+p_wfss = [p_wfs0]
 
 p_wfs0.set_type("sh")
 p_wfs0.set_nxsub(nxsub)
 p_wfs0.set_npix(wfs_npix)
 # p_wfs0.set_dms_seen(np.array([0, 1]))
-p_wfs0.set_dms_seen(np.array([0]))
+p_wfs0.set_dms_seen(np.array([0,1]))
 
 p_wfs0.set_pixsize(wfs_pixsize)
 p_wfs0.set_fracsub(wfs_fracsub)
@@ -100,7 +100,7 @@ p_wfs0.set_atmos_seen(1)
 p_wfs_noise_minus1.set_type("sh")
 p_wfs_noise_minus1.set_nxsub(nxsub)
 p_wfs_noise_minus1.set_npix(wfs_npix)
-p_wfs_noise_minus1.set_dms_seen(np.array([0]))
+p_wfs_noise_minus1.set_dms_seen(np.array([0,1]))
 # p_wfs_noise_minus1.set_dms_seen(np.array([0, 1]))
 
 p_wfs_noise_minus1.set_pixsize(wfs_pixsize)
@@ -121,7 +121,7 @@ p_dm1 = conf.Param_dm()
 # dm
 
 # p_dms = [p_dm0]
-p_dms = [p_dm0]
+p_dms = [p_dm0, p_dm1]
 
 p_dm0.set_type("pzt")
 p_dm0.set_nact(nact)
@@ -153,7 +153,7 @@ p_controllers = [p_controller0]
 p_controller0.set_type("ls")
 p_controller0.set_nwfs([0])
 # p_controller0.set_ndm([0, 1])
-p_controller0.set_ndm([0])
+p_controller0.set_ndm([0,1])
 
 p_controller0.set_maxcond(1500.)
 p_controller0.set_delay(d)

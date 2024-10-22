@@ -45,8 +45,8 @@ def initialize_master_worker_paradigm(rank,
         print_and_assertions(config, seed)
 
         # g) Create summary writer
-        writer_performance = SummaryWriter('output4/runs/performance/performance_' + experiment_name)
-        writer_metrics_1 = SummaryWriter('output4/runs/metrics_1/metrics_' + experiment_name)
+        writer_performance = SummaryWriter('output12/runs/performance/performance_' + experiment_name)
+        writer_metrics_1 = SummaryWriter('output12/runs/metrics_1/metrics_' + experiment_name)
 
         rpc.init_rpc(MASTER_NAME, rank=rank, world_size=world_size)
         trainer = TrainerRPC(config_rl=config,

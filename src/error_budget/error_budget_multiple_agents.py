@@ -33,7 +33,7 @@ def obtain_config(parameter_file,
     config.env_rl['reward_type'] = "avg_square_m"
 
     config.env_rl['n_zernike_start_end'] = [n_zernike_start, n_zernike_end]
-    config.env_rl['include_tip_tilt'] = True
+    config.env_rl['include_tip_tilt'] = False
     config.env_rl['max_steps_per_episode'] = 1000
     config.env_rl['level'] = "correction"
     if "window" in experiment_name or "w20" in experiment_name:
@@ -339,7 +339,7 @@ class RlErrorBudgetTester:
         srs = self.env.supervisor.target.get_strehl(0)
         self.env.supervisor.SR2 = np.exp(srs[3])
         self.env.supervisor.SR = srs[1]
-        self.env.supervisor.save_in_hdf5("output/error_budget/h5_files/" + self.experiment_name +
+        self.env.supervisor.save_in_hdf5("output12/error_budget/h5_files/" + self.experiment_name +
                                          "_steps_" + str(self.total_num_steps) + ".h5")
         return self.env.supervisor.target.get_strehl(0)[1]
 

@@ -61,10 +61,10 @@ def modes_chosen_original(dictionary_agents, indices_of_state,
 
     if debug_modes_chosen:
         import os
-        if not os.path.exists("output/debug/"):
-            os.makedirs("output/debug/")
+        if not os.path.exists("output12/debug/"):
+            os.makedirs("output12/debug/")
         df = pd.DataFrame.from_dict(modes_chosen_dict, orient='index')
-        df.transpose().to_csv("output/debug/" + experiment_name + "_modes_chosen_original.csv", index=False)
+        df.transpose().to_csv("output12/debug/" + experiment_name + "_modes_chosen_original.csv", index=False)
 
     return modes_chosen_dict
 
@@ -85,7 +85,7 @@ def modes_chosen_tt_treated_as_mode(dictionary_agents, indices_of_state, experim
 
     if debug_modes_chosen:
         df = pd.DataFrame.from_dict(modes_chosen_dict, orient='index')
-        df.transpose().to_csv("output/debug/" + experiment_name + "_modes_chosen_original.csv", index=False)
+        df.transpose().to_csv("output12/debug/" + experiment_name + "_modes_chosen_original.csv", index=False)
 
     return modes_chosen_dict
 
@@ -139,7 +139,7 @@ def modes_chosen_additional(dictionary_agents, indices_of_state, additional_stat
 
     if debug_modes_chosen:
         df = pd.DataFrame.from_dict(modes_chosen_dict, orient='index')
-        df.transpose().to_csv("output/debug/" + experiment_name + "_modes_chosen_additional.csv", index=False)
+        df.transpose().to_csv("output12/debug/" + experiment_name + "_modes_chosen_additional.csv", index=False)
 
     return modes_chosen_dict
 
@@ -194,7 +194,7 @@ def modes_chosen_seq2seq(dictionary_agents, indices_of_state, seq2seq_partial, i
 
     if debug_modes_chosen:
         df = pd.DataFrame.from_dict(modes_chosen_dict, orient='index')
-        df.transpose().to_csv("output/debug/" + experiment_name + "_modes_chosen_seq2seq.csv", index=False)
+        df.transpose().to_csv("output12/debug/" + experiment_name + "_modes_chosen_seq2seq.csv", index=False)
 
     return modes_chosen_dict
 
@@ -278,7 +278,7 @@ def modes_chosen_window_n_zernike(dictionary_agents,
 
     if debug_modes_chosen:
         df = pd.DataFrame.from_dict(modes_chosen_dict, orient='index')
-        df.transpose().to_csv("output/debug/" + experiment_name + "_modes_chosen_window_n_zernike.csv", index=False)
+        df.transpose().to_csv("output12/debug/" + experiment_name + "_modes_chosen_window_n_zernike.csv", index=False)
 
     return modes_chosen_dict
 

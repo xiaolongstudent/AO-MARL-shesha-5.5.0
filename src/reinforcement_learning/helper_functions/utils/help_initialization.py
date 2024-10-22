@@ -14,7 +14,7 @@ def parser_args(config):
     # Other
 
     parser.add_argument('--num-gpus', type=int, default=torch.cuda.device_count())
-    parser.add_argument("--world-size", default=1, type=int)
+    parser.add_argument("--world-size", default=3, type=int)
     parser.add_argument("--gamma",
                         default=config.sac['gamma'], type=float)
     parser.add_argument("--alpha", help="entropy strength",
@@ -47,7 +47,7 @@ def parser_args(config):
                         default=config.env_rl['max_steps_per_episode'], type=int)
     parser.add_argument("--level",
                         default=config.env_rl['level'], type=str)
-    parser.add_argument("--experiment_name", default= '14_8_3l_dir_w20', type=str)
+    parser.add_argument("--experiment_name", default= 'training', type=str)
     parser.add_argument("--parameters_telescope",
                         default=config.env_rl['parameters_telescope'], type=str)
     parser.add_argument("--integration_mode",
@@ -157,7 +157,7 @@ def parser_args(config):
     # TT_reward
     parser.add_argument("--TT_reward", default=config.env_rl['TT_reward'], type=str)
 
-    parser.add_argument("--port", default='25003', type=str)
+    parser.add_argument("--port", default='25001', type=str)
 
     parser.add_argument("--gain_change",
                         default=config.env_rl['gain_change'], type=float)

@@ -5,7 +5,7 @@ simul_name = "production_sh_10x10_2m"
 
 d = 2.
 n = 3
-g = 0.7
+g = 0.4
 
 r0 = 0.16
 diameter_telescope = 2.0
@@ -62,7 +62,7 @@ p_target0 = conf.Param_target()
 p_targets = [p_target0]
 
 # p_target0.set_ntargets(1)
-p_target0.set_dms_seen([0])
+p_target0.set_dms_seen([0,1])
 # p_target0.set_dms_seen([0, 1])
 
 p_target0.set_xpos(0.)
@@ -79,14 +79,14 @@ p_target0.set_mag(10.)
 # wfs
 p_wfs0 = conf.Param_wfs()
 p_wfs1 = conf.Param_wfs()
-p_wfss = [p_wfs0, p_wfs1]
+p_wfss = [p_wfs0]
 # p_wfss = [p_wfs0]
 
 
 p_wfs0.set_type("sh")
 p_wfs0.set_nxsub(nxsub)
 p_wfs0.set_npix(16)
-p_wfs0.set_dms_seen(np.array([0]))
+p_wfs0.set_dms_seen(np.array([0,1]))
 # p_wfs0.set_dms_seen(np.array([0, 1]))
 
 p_wfs0.set_pixsize(0.25)
@@ -119,13 +119,13 @@ p_wfs1.set_atmos_seen(1)
 p_dm0 = conf.Param_dm()
 p_dm1 = conf.Param_dm()
 # geo dm
-p_dm2 = conf.Param_dm()
-p_dm3 = conf.Param_dm()
+# p_dm2 = conf.Param_dm()
+# p_dm3 = conf.Param_dm()
 
 # dm
 # p_dms = [p_dm0, p_dm2, p_dm1, p_dm3]
-p_dms = [p_dm0]
-# p_dms = [p_dm0,  p_dm1]
+# p_dms = [p_dm0]
+p_dms = [p_dm0,  p_dm1]
 
 
 p_dm0.set_type("pzt")
@@ -181,7 +181,7 @@ p_controllers = [p_controller0]
 
 p_controller0.set_type("ls")
 p_controller0.set_nwfs([0])
-p_controller0.set_ndm([0])
+p_controller0.set_ndm([0,1])
 # p_controller0.set_ndm([0, 1])
 
 p_controller0.set_maxcond(1500.)
