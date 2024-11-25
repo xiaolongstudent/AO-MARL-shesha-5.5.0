@@ -64,7 +64,11 @@ To train a policy you need to run main.py. The following arguments are required 
 + window_n_zernike: to build the "windowed" controller present in the paper.
 + port: port number required for the parallel execution.
 + num-gpus. The number of GPUs used, default 1. (Note: we recommend one GPU per approx 10 agents)
-
++ create_norm_param :是否要重新计算btt模型映射关系
++ autoencoder["path"] 如何添加会进行去噪处理；去噪会对wfs传感器的子孔径先进行去噪。
++ include_tip_tilt 是否添加倾斜向
++ delayed_assignment 延迟时间设置
++ 
 For instance, for 2 agents one controlling the tip-tilt and one controlling 80 modes for a 2m telescope with 10x10 subapertures you need to write:
 
 ```

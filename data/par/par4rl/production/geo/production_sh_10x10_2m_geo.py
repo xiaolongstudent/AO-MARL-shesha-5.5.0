@@ -37,13 +37,15 @@ p_tel.set_cobs(0.12)
 p_atmos = conf.Param_atmos()
 
 p_atmos.set_r0(0.16)
-p_atmos.set_nscreens(1)
-p_atmos.set_frac([1.0])
-p_atmos.set_alt([0.0])
-p_atmos.set_windspeed([wind_speed])
-p_atmos.set_winddir([45.])
-p_atmos.set_L0([1.e5])
-
+p_atmos.set_nscreens(3)
+p_atmos.set_frac([0.6, 0.25, 0.15])
+p_atmos.set_alt([0.0, 4500.0, 14000.0])
+p_atmos.set_windspeed([15,
+                       10,
+                       20])
+# one at the ground one at 5 km, both have the same wind speed, case were the layer at 5km is faster
+p_atmos.set_winddir([0, 45, 90])
+p_atmos.set_L0([1.e5, 1.e5, 1.e5])
 # target
 p_target0 = conf.Param_target()
 p_targets = [p_target0]

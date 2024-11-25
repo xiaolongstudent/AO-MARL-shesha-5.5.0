@@ -13,6 +13,9 @@ import random
 import os
 
 
+from hcipy import FFMpegWriter
+
+
 def obtain_config(parameter_file,
                   basis,
                   pure_delay_0,
@@ -71,6 +74,27 @@ class OfflineDatasetObtainer:
         self.env = ao_env.AoEnv(self.config_normal, normalization_bool=False, geo_policy_testing=False)
         print("Filtering now: ", modes_filtered, " Modes")
         self.env.supervisor.obtain_and_set_cmat_filtered(modes_filtered=modes_filtered)
+    def plot_d_bincube(self,noiseimg,nonoiseimg):
+        plt.figure()
+        anim = FFMpegWriter(os.path.join("output/autoencoder", 'animation0.mp4'), framerate=10)
+        noiseimg = np.asarray(noiseimg)
+        nonoiseimg = np.asarray(nonoiseimg)
+        noiseimg =noiseimg.transpose(2, 0, 1)
+        nonoiseimg = nonoiseimg.transpose(2, 0, 1)
+        for i in range(len(noiseimg)):
+            plt.clf()
+            plt.subplots_adjust(wspace=0.4, hspace=0.4)
+
+            plt.subplot(1,2,1)
+            plt.imshow(noiseimg[i])
+            plt.title("noise image")
+            plt.subplot(1,2,2)
+            plt.imshow(nonoiseimg[i])
+            plt.title("no noise image")
+
+            anim.add_frame()
+        plt.close()
+        anim.close()
 
     def record_data(self,
                     num_episodes,
@@ -83,6 +107,11 @@ class OfflineDatasetObtainer:
         # assert seed < 1234  # We usually train with seed 1234
         # assert seed > 200  # Seed 200 for error budget, seed 0-20 for preprocessing
         print("Warning: When testing autoencoder do not use the same seed. Current seed ", seed)
+        save_folder = "output/autoencoder/output_dataset_autoencoderGM0/"
+        if not os.path.exists(save_folder):
+            os.makedirs(save_folder)
+            
+        
         for episode in range(num_episodes):
             step = 0
             done = False
@@ -96,6 +125,7 @@ class OfflineDatasetObtainer:
 
                 wfs_image_noise3_list.append(np.array(self.env.supervisor.wfs._wfs.d_wfs[0].d_bincube))
                 wfs_image_noiseminus1_list.append(np.array(self.env.supervisor.wfs._wfs.d_wfs[1].d_bincube))
+                # self.plot_d_bincube(np.array(self.env.supervisor.wfs._wfs.d_wfs[0].d_bincube),np.array(self.env.supervisor.wfs._wfs.d_wfs[1].d_bincube))
 
                 step += 1
                 if step >= 1000:
@@ -106,23 +136,24 @@ class OfflineDatasetObtainer:
                   "Seed:", seed,
                   "Gain:", round(self.env.supervisor.rtc._rtc.d_control[0].gain, 3),
                   "L.E. SR:", round(self.env.supervisor.target.get_strehl(0)[1], 5))
+            save_path_noise3 = "0.16_GM6_noise3_image_" + self.parameter_file_name + "_small"
+            save_path_noiseminus1 = "noiseminus1_image_" + self.parameter_file_name + "_small"
 
-        save_folder = "output12/autoencoder/output_dataset_autoencoder/"
-        if not os.path.exists(save_folder):
-            os.makedirs(save_folder)
-        save_path_noise3 = "noise3_image_" + self.parameter_file_name + "_small"
-        save_path_noiseminus1 = "noiseminus1_image_" + self.parameter_file_name + "_small"
+            # print("Saving data noise 3 on:", save_path_noise3)
+            # print("Saving data noise minus 1 on:", save_path_noiseminus1)
+            np.save(save_folder + save_path_noise3 + str(episode) + ".npy", np.array(wfs_image_noise3_list))
+            np.save(save_folder + save_path_noiseminus1 + str(episode) + ".npy", np.array(wfs_image_noiseminus1_list))
+            wfs_image_noise3_list.clear()
+            wfs_image_noiseminus1_list.clear()
 
-        print("Saving data noise 3 on:", save_path_noise3)
-        print("Saving data noise minus 1 on:", save_path_noiseminus1)
-        np.save(save_folder + save_path_noise3 + ".npy", np.array(wfs_image_noise3_list))
-        np.save(save_folder + save_path_noiseminus1 + ".npy", np.array(wfs_image_noiseminus1_list))
+
+
 
 
 class ExperimentManager:
     def __init__(self, args):
         self.freedom_path = None
-        self.number_episodes = 100000
+        self.number_episodes = 100
         self.autoencoder_p = None
         self.pure_delay_0 = True
         self.seed = args.seed

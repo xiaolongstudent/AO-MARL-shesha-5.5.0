@@ -29,6 +29,7 @@ class SAC(object):
 
         self.initialize_last_layer_zero = config.sac['initialize_last_layer_0']
         self.initialize_last_layer_near_zero = config.sac['initialize_last_layer_near_0']
+        self.initialize_last_layer_init_kan = config_sac['initialize_last_layer_init_kan']
 
         self.lr = config.sac['lr']
         hidden_size_critic = config.sac['hidden_size_critic']

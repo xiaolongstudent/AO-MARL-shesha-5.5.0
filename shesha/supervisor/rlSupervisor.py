@@ -946,6 +946,7 @@ class RlSupervisor(CompassSupervisor):
                 self.target.comp_tar_image(tar_index)
                 self.target.comp_strehl(tar_index)
 
+
     #
     #           II b) PART ONE METHODS
     #
@@ -974,6 +975,7 @@ class RlSupervisor(CompassSupervisor):
             self.wfs.raytrace(w, dms=self.dms, ncpa=False, reset=False)
         self.wfs.compute_wfs_image(w)
 
+        #对wfs 采集到的小孔图像去噪
         if self.autoencoder is not None:
             self.autoencoder_denoising()
 

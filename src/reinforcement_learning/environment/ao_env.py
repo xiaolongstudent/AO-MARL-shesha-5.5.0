@@ -888,7 +888,11 @@ class AoEnv(gym.Env):
         self.supervisor.next_part_one(geometric_apply_control=geometric_apply_control)
 
         s_dm_after_linear = self.supervisor.rtc.get_command(0)
-        s_wfs = self.supervisor.rtc.get_slopes(0)
+        s_wfs_slops = self.supervisor.rtc.get_slopes(0)
+        matrix = self.supervisor.rtc.get_command_matrix(0)
+        s_wfs = matrix.dot(s_wfs_slops)
+        s_wfs= self.transform_state_to_zernike(s_wfs, return_reward=False)
+
         if self.supervisor.config.p_controllers[0].get_type() != "geo":
             s_dm_residual = self.supervisor.rtc.get_err(0)
         else:
@@ -901,6 +905,7 @@ class AoEnv(gym.Env):
                 s_dm_residual = self.transform_state_to_zernike(s_dm_residual, return_reward=False)
 
         s_next = OrderedDict()
+
         s_next = self.add_wfs_to_state(s_next, s_wfs)
         s_next = self.add_dm_to_state(s_next, s_dm_before_linear, s_dm_after_linear)
         if self.supervisor.config.p_controllers[0].get_type() != "geo":

@@ -7,7 +7,8 @@ import torch
 import numpy as np
 # from tensorboard import  SummaryWriter
 from torch.utils.tensorboard import SummaryWriter
-
+from hcipy import FFMpegWriter
+import matplotlib.pyplot as plt
 
 MASTER_NAME = "Compass"
 AGENT_NAME = "Agent{}"
@@ -45,8 +46,8 @@ def initialize_master_worker_paradigm(rank,
         print_and_assertions(config, seed)
 
         # g) Create summary writer
-        writer_performance = SummaryWriter('output12/runs/performance/performance_' + experiment_name)
-        writer_metrics_1 = SummaryWriter('output12/runs/metrics_1/metrics_' + experiment_name)
+        writer_performance = SummaryWriter('outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/runs/performance/performance_' + experiment_name)
+        writer_metrics_1 = SummaryWriter('outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/runs/metrics_1/metrics_' + experiment_name)
 
         rpc.init_rpc(MASTER_NAME, rank=rank, world_size=world_size)
         trainer = TrainerRPC(config_rl=config,
@@ -56,7 +57,49 @@ def initialize_master_worker_paradigm(rank,
                                  experiment_name=experiment_name,
                              world_size=world_size,
                              num_gpus=args.num_gpus)
-        trainer.train_agent()
+
+        # trainer.train_agent()
+
+        folder = "test_model_sr"
+        seed = 1234
+        if not os.path.exists(folder):
+            os.makedirs(folder)
+        trainer.load_model_dict(config)
+        for i in range(5):
+            test_result_dict, dm_phase_list = trainer.test_episode('RL')
+            se_list = test_result_dict['sr_se_test_list']
+
+            # se_list = test_result_dict[0]['sr_se_test_list']
+            sl_list = test_result_dict['sr_sl_test_list']
+            np.save(folder+f"0.16_se_list{i}.npy",se_list)
+            # np.save(folder + f"dm_phase_loss_actor4.npy", dm_phase_list)
+            np.save(folder+f"0.16_sl_list{i}.npy",sl_list)
+            seed +=20
+            trainer.set_seed(seed)
+            # plt.figure()
+            # anim = FFMpegWriter(os.path.join("output/autoencoder", 'dm_image_loss_actor_full.mp4'), framerate=10)
+            #
+            # for i in range(len(dm_phase_list[:100])):
+            #
+            #     plt.clf()
+            #     plt.subplots_adjust(wspace=0.4, hspace=0.4)
+            #     plt.imshow(dm_phase_list[i])
+            #     plt.title(f"loss actor_full sr{se_list[i]}")
+            #
+            #
+            #     anim.add_frame()
+            # plt.close()
+            # anim.close()
+
+
+
+
+
+        # print("complish")
+        #
+        #
+        
+        
     else:
         config = Config()
         args = obtain_args(config)

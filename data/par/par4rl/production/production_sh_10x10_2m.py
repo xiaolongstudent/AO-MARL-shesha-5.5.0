@@ -55,6 +55,13 @@ p_atmos.set_windspeed([15,
 # one at the ground one at 5 km, both have the same wind speed, case were the layer at 5km is faster
 p_atmos.set_winddir([0, 45, 90])
 p_atmos.set_L0([1.e5, 1.e5, 1.e5])
+# p_atmos.set_frac([0.6])
+# p_atmos.set_alt([0.0])
+# p_atmos.set_windspeed([
+#                        20])
+# # one at the ground one at 5 km, both have the same wind speed, case were the layer at 5km is faster
+# p_atmos.set_winddir([45])
+# p_atmos.set_L0([1.e5])
 
 # target
 p_target0 = conf.Param_target()
@@ -79,7 +86,7 @@ p_target0.set_mag(10.)
 # wfs
 p_wfs0 = conf.Param_wfs()
 p_wfs1 = conf.Param_wfs()
-p_wfss = [p_wfs0]
+p_wfss = [p_wfs0,p_wfs1]
 # p_wfss = [p_wfs0]
 
 
@@ -103,13 +110,13 @@ p_wfs0.set_atmos_seen(1)
 p_wfs1.set_type("sh")
 p_wfs1.set_nxsub(nxsub)
 p_wfs1.set_npix(16)
-p_wfs1.set_dms_seen(np.array([1, 3]))
+p_wfs1.set_dms_seen(np.array([0, 1]))
 p_wfs1.set_pixsize(0.25)
 p_wfs1.set_fracsub(0.8)
 p_wfs1.set_xpos(0.)
 p_wfs1.set_ypos(0.)
 p_wfs1.set_Lambda(0.5)
-p_wfs1.set_gsmag(4.)
+p_wfs1.set_gsmag(0.)
 p_wfs1.set_optthroughput(0.12)
 p_wfs1.set_zerop(1.e11)
 p_wfs1.set_noise(-1.)

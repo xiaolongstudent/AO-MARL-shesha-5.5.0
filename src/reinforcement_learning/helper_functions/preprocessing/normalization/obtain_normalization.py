@@ -136,6 +136,7 @@ class Preprocessor:
         plt.savefig("insights/freedom_parameter/" + self.parameter_file_name + "/projection_comparison")
         plt.close("all")
 
+
     def normalization_loop(self, geometric_controller):
         """
         run 10 normalization episodes

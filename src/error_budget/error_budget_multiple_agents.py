@@ -339,7 +339,7 @@ class RlErrorBudgetTester:
         srs = self.env.supervisor.target.get_strehl(0)
         self.env.supervisor.SR2 = np.exp(srs[3])
         self.env.supervisor.SR = srs[1]
-        self.env.supervisor.save_in_hdf5("output12/error_budget/h5_files/" + self.experiment_name +
+        self.env.supervisor.save_in_hdf5("outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/error_budget/h5_files/" + self.experiment_name +
                                          "_steps_" + str(self.total_num_steps) + ".h5")
         return self.env.supervisor.target.get_strehl(0)[1]
 

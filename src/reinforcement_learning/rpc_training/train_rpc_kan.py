@@ -60,6 +60,7 @@ class TrainerRPC:
                  num_gpus):
 
         # 0) a. RPC
+        print("train_rpc_kan.py")
 
         self.n_filtered = config_rl.env_rl['n_reverse_filtered_from_cmat']
         self.ag_rrefs = []
@@ -357,7 +358,6 @@ class TrainerRPC:
                     args=(SAC.load_policy, ag_rreff ,self.master_rref,worker_id),
                     timeout=12000
                 )
-
             )
             worker_id += 1
 
@@ -837,7 +837,7 @@ class TrainerRPC:
 
 import torch
 import torch.nn.functional as F
-from torch.optim import Adam ,AdamW
+from torch.optim import Adam,AdamW
 from src.reinforcement_learning.rpc_training.algorithms_rpc.utils import soft_update, hard_update
 from src.reinforcement_learning.rpc_training.algorithms_rpc.model_rpc import GaussianPolicy, QNetwork, Kan_QNetwork,KANGaussianPolicy
 from src.reinforcement_learning.rpc_training.helper_rpc.helper_pure_rpc import _remote_method
@@ -923,8 +923,6 @@ class SAC(object):
             target_entropy = -torch.prod(torch.tensor(action_space.shape).to(self.device)).item()
             log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
             alpha_optim = Adam([log_alpha], lr=self.lr)
-            # alpha_optim = torch.optim.LBFGS([log_alpha], lr=self.lr,max_iter=10,tolerance_change = 1e-10,history_size=20)
-
 
         elif self.policy_type == "Deterministic":
             self.alpha = 0
@@ -936,11 +934,11 @@ class SAC(object):
 
         print("1. Initialasing SAC Critic")
 
-        critic = QNetwork(num_inputs, action_space.shape[0], hidden_size_critic, num_layers_critic).to(self.device)
-        critic_target = QNetwork(num_inputs, action_space.shape[0], hidden_size_critic, num_layers_critic).to(
+        critic = Kan_QNetwork(num_inputs, action_space.shape[0], hidden_size_critic, num_layers_critic).to(self.device)
+        critic_target = Kan_QNetwork(num_inputs, action_space.shape[0], hidden_size_critic, num_layers_critic).to(
             self.device)
         critic_optim = Adam(critic.parameters(), lr=self.lr)
-        # critic_optim = torch.optim.LBFGS(critic.parameters(), lr=self.lr,max_iter=10,tolerance_change = 1e-10,history_size=20)
+        # critic_optim = torch.optim.LBFGS(critic.parameters(), lr=1e-4,max_iter=5,tolerance_change = 1e-10,history_size=10)
 
         hard_update(critic_target, critic)
 
@@ -956,7 +954,7 @@ class SAC(object):
         print("2. Initialising Policy; Type:", self.policy_type)
 
         if self.policy_type == "Gaussian":
-            policy = GaussianPolicy(num_inputs=num_inputs,
+            policy = KANGaussianPolicy(num_inputs=num_inputs,
                                     num_actions=action_space.shape[0],
                                     hidden_dim=hidden_size_actor,
                                     action_scale=self.config.sac['gaussian_std'],
@@ -968,15 +966,16 @@ class SAC(object):
                                     LOG_SIG_MAX=self.config.sac['LOG_SIG_MAX']).to(self.device)
             policy_optim_decay = self.config.sac['l2_norm_policy'] if self.config.sac['l2_norm_policy'] > 0 else 0
             policy_optim = Adam(policy.parameters(), lr=self.lr, weight_decay=policy_optim_decay)
-            # policy_optim = torch.optim.LBFGS(policy.parameters(), lr=self.lr,max_iter=10,tolerance_change = 1e-10,history_size=20)
+            # policy_optim = torch.optim.LBFGS(policy.parameters(),lr=1e-4,max_iter=5,tolerance_change = 1e-10,history_size=10)
+
         else:
             raise NotImplementedError
 
         return policy, policy_optim
 
     def reset_optimizers(self):
-        self.policy_optim = Adam(self.policy.parameters(), lr=self.lr)
-        self.critic_optim = Adam(self.critic.parameters(), lr=self.lr)
+        self.policy_optim = Adam(self.policy.parameters(), lr=self.lr) #Adam(self.policy.parameters(), lr=self.lr)
+        self.critic_optim = Adam(self.critic.parameters(),lr=self.lr) #Adam(self.critic.parameters(), lr=self.lr)
 
         self.memory.reset()
 
@@ -986,7 +985,7 @@ class SAC(object):
     # noinspection PyArgumentList
     def load_policy(self, master_rref , worker_id):
         assert self.worker_id == worker_id
-        policy_model_path = f"outputgain_0.4_noice3_worker4_1/output_models/models_rpc/training/trainingexperiment_name_worker_{worker_id}_sac_actor_training_episode_950"
+        policy_model_path = f"outputgain_0.4_noice3_layer1_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan/output_models/models_rpc/training/trainingexperiment_name_worker_{worker_id}_sac_actor_training_episode_500"
         model_dict = torch.load(policy_model_path)
         model_state_dict = model_dict["model_state_dict"]
         self.policy.load_state_dict(model_state_dict)
@@ -1112,8 +1111,6 @@ class SAC(object):
                 return qf_loss
 
             qf_loss = self.critic_optim.step(closure)
-            return qf1_loss.detach().item(), qf2_loss.detach().item()
-
         else:
             self.critic_optim.zero_grad()
 
@@ -1125,21 +1122,10 @@ class SAC(object):
 
             qf_loss.backward()
             self.critic_optim.step()
-            return qf1_loss.detach().item(), qf2_loss.detach().item()
-
-        # Two Q-functions to mitigate positive bias in the policy improvement step
-        # qf1, qf2 = self.critic(state_batch, action_batch)
-        #
-        # qf_loss, qf1_loss, qf2_loss = self.calculate_q_loss(qf1,
-        #                                                     qf2,
-        #                                                     next_q_value)
-        #
-        # self.critic_optim.zero_grad()
-        # qf_loss.backward()
-        # self.critic_optim.step()
 
 
-        # return qf1_loss.detach().item(), qf2_loss.detach().item()
+
+        return qf1_loss.detach().item(), qf2_loss.detach().item()
 
     ###################################################################################################################
     ###################################################################################################################
@@ -1153,9 +1139,9 @@ class SAC(object):
         return policy_loss
 
     def update_actor(self, state_batch):
+
         if isinstance(self.policy_optim, torch.optim.LBFGS):
             log_pi = torch.tensor(0.2).to(self.device)
-
             # pi = torch.tensor(0.5).to(self.device)
             # qf1_pi = torch.tensor([0.5]).to(self.device)
             # qf2_pi = torch.tensor([0.5]).to(self.device)
@@ -1169,29 +1155,20 @@ class SAC(object):
                 min_qf_pi = torch.min(qf1_pi, qf2_pi)
                 policy_loss = self.calculate_policy_loss(log_pi, min_qf_pi)
                 policy_loss.backward(retain_graph=True)
-                return policy_loss
+                return  policy_loss
 
             policy_loss = self.policy_optim.step(closure)
         else:
+            self.policy_optim.zero_grad()
             pi, log_pi, _ = self.policy.sample(state_batch)
             qf1_pi, qf2_pi = self.critic(state_batch, pi)
             min_qf_pi = torch.min(qf1_pi, qf2_pi)
             policy_loss = self.calculate_policy_loss(log_pi, min_qf_pi)
-
-            self.policy_optim.zero_grad()
             policy_loss.backward()
             self.policy_optim.step()
 
-        # pi, log_pi, _ = self.policy.sample(state_batch)
-        # qf1_pi, qf2_pi = self.critic(state_batch, pi)
-        #
-        # min_qf_pi = torch.min(qf1_pi, qf2_pi)
-        #
-        # policy_loss = self.calculate_policy_loss(log_pi, min_qf_pi)
-        #
-        # self.policy_optim.zero_grad()
-        # policy_loss.backward()
-        # self.policy_optim.step()
+
+
 
         return log_pi, policy_loss.detach().item()
 
@@ -1201,25 +1178,14 @@ class SAC(object):
 
     def update_alpha(self, log_pi):
         if self.automatic_entropy_tuning:
+            alpha_loss = -(self.log_alpha * (log_pi + self.target_entropy).detach()).mean()
 
-            if isinstance(self.alpha_optim, torch.optim.LBFGS):
-                def closure():
-                    alpha_loss = -(self.log_alpha * (log_pi + self.target_entropy).detach()).mean()
-                    self.alpha_optim.zero_grad()
-                    alpha_loss.backward()
-                    return alpha_loss
-
-                alpha_loss = self.alpha_optim.step(closure)
-            else:
-                alpha_loss = -(self.log_alpha * (log_pi + self.target_entropy).detach()).mean()
-                self.alpha_optim.zero_grad()
-                alpha_loss.backward()
-                self.alpha_optim.step()
+            self.alpha_optim.zero_grad()
+            alpha_loss.backward()
+            self.alpha_optim.step()
 
             self.alpha = self.log_alpha.exp()
             alpha_tlogs = self.alpha.clone()
-
-
         else:
             alpha_loss = torch.tensor(0.).to(self.device)
             alpha_tlogs = torch.tensor(self.alpha).item()  # For TensorboardX logs

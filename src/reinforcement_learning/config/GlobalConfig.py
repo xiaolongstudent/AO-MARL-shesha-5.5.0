@@ -62,6 +62,7 @@ class Config:
         self.sac['activation'] = str(config_sac['activation'])
         self.sac['initialize_last_layer_0'] = str(config_sac['initialize_last_layer_0'])
         self.sac['initialize_last_layer_near_0'] = str(config_sac['initialize_last_layer_near_0'])
+        self.sac['initialize_last_layer_init_kan'] = str(config_sac['initialize_last_layer_init_kan'])
 
         self.sac['save_replay_buffer'] = str(config_sac['save_replay_buffer'])
         self.sac['save_rewards_buffer'] = str(config_sac['save_rewards_buffer'])
@@ -152,7 +153,7 @@ class Config:
         self.original_gain = None
 
         # 4) Autoencoder
-        self.autoencoder['path'] = 'output4/autoencoder/autoencoder_weights/autoencoder_M9_rms_3'
+        self.autoencoder['path'] = None  #'output/autoencoder/save_model2.pth'
         self.autoencoder['type'] = str(config_autoencoder['type'])
 
         # Loading previous weights/replay
@@ -212,6 +213,8 @@ class Config:
         self.sac['activation'] = str(args.activation)
         self.sac['initialize_last_layer_0'] = True if str(args.initialize_last_layer_0) == "True" else False
         self.sac['initialize_last_layer_near_0'] = True if str(args.initialize_last_layer_near_0) == "True" else False
+        self.sac['initialize_last_layer_init_kan'] = True if str(args.initialize_last_layer_init_kan) == "True" else False
+
         self.sac['l2_norm_policy'] = float(args.l2_norm_policy)
         self.sac['updates_per_episode_rpc'] = int(args.updates_per_episode_rpc)
         self.sac['LOG_SIG_MAX'] = float(args.LOG_SIG_MAX)
@@ -262,8 +265,7 @@ class Config:
         self.env_rl["custom_freedom_path"] = args.custom_freedom_path
         self.env_rl["load_previous_weights"] = True if args.load_previous_weights == "True" else False
 
-        self.env_rl['create_norm_param'] = bool(args.create_norm_param)
-        self.env_rl['save_dict'] = args.save_dict
+        self.env_rl['create_norm_param'] = True if args.create_norm_param in ['True',"True",1] else False
 
         self.env_rl['n_reverse_filtered_from_cmat'] = int(args.n_reverse_filtered_from_cmat)
 

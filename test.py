@@ -8,8 +8,6 @@ import data.par.par4rl.production.production_sh_40x40_8m_3layers_d0_noise
 #这是一个测试
 
 
-
-
 if __name__ == "__main__":
     # exp = ExperimentManager()
     # exp.run()

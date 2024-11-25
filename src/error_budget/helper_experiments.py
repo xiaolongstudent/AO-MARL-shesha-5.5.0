@@ -10,7 +10,7 @@ def choose_experiment_error_budget_multiple_agents(experiment_name):
         n_zernike_end = 1260
         # n_zernike_end = 80
 
-        policy_folder = "output12/output_models/models_rpc/"
+        policy_folder = "outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/output_models/models_rpc/"
         policy_epoch = 2000
 
         policy_paths = {}
@@ -28,7 +28,7 @@ def choose_experiment_error_budget_multiple_agents(experiment_name):
 
         n_zernike_start = 0
         n_zernike_end = 1260
-        policy_folder = "output12/output_models/models_rpc/"
+        policy_folder = "outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/output_models/models_rpc/"
         policy_epoch = 2000
 
         policy_paths = {}
@@ -46,7 +46,7 @@ def choose_experiment_error_budget_multiple_agents(experiment_name):
 
         n_zernike_start = 0
         n_zernike_end = 1260
-        policy_folder = "output12/output_models/models_rpc/"
+        policy_folder = "outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/output_models/models_rpc/"
         policy_epoch = 2000
 
         policy_paths = {}
@@ -64,7 +64,7 @@ def choose_experiment_error_budget_multiple_agents(experiment_name):
 
         n_zernike_start = 0
         n_zernike_end = 1260
-        policy_folder = "output12/output_models/models_rpc/"
+        policy_folder = "outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/output_models/models_rpc/"
         policy_epoch = 2000
 
         policy_paths = {}

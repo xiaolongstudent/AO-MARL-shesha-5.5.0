@@ -5,7 +5,7 @@ from guardians.gamora import psf_rec_Vii
 import h5py
 
 plt.style.use("ggplot")
-OUT_FOLDER = "output12/error_budget/h5_files/roket_output/"
+OUT_FOLDER = "outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/error_budget/h5_files/roket_output/"
 
 
 def cutsPSF(filename, psf, psfs):
@@ -151,7 +151,7 @@ def get_result_breakdown(parameter_file,
                          num_agents=43,
                          RL=True):
 
-    parameter_file = "output12/error_budget/h5_files/" + parameter_file
+    parameter_file = "outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/error_budget/h5_files/" + parameter_file
 
     # ----------------------------------------  1. Check it works (RL as a mark) ---------------------------------------
     check_strehl_roket_vs_compass(parameter_file, RL)

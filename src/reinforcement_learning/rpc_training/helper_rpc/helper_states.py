@@ -61,10 +61,10 @@ def modes_chosen_original(dictionary_agents, indices_of_state,
 
     if debug_modes_chosen:
         import os
-        if not os.path.exists("output12/debug/"):
-            os.makedirs("output12/debug/")
+        if not os.path.exists("outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/debug/"):
+            os.makedirs("outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/debug/")
         df = pd.DataFrame.from_dict(modes_chosen_dict, orient='index')
-        df.transpose().to_csv("output12/debug/" + experiment_name + "_modes_chosen_original.csv", index=False)
+        df.transpose().to_csv("outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/debug/" + experiment_name + "_modes_chosen_original.csv", index=False)
 
     return modes_chosen_dict
 
@@ -85,7 +85,7 @@ def modes_chosen_tt_treated_as_mode(dictionary_agents, indices_of_state, experim
 
     if debug_modes_chosen:
         df = pd.DataFrame.from_dict(modes_chosen_dict, orient='index')
-        df.transpose().to_csv("output12/debug/" + experiment_name + "_modes_chosen_original.csv", index=False)
+        df.transpose().to_csv("outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/debug/" + experiment_name + "_modes_chosen_original.csv", index=False)
 
     return modes_chosen_dict
 
@@ -139,7 +139,7 @@ def modes_chosen_additional(dictionary_agents, indices_of_state, additional_stat
 
     if debug_modes_chosen:
         df = pd.DataFrame.from_dict(modes_chosen_dict, orient='index')
-        df.transpose().to_csv("output12/debug/" + experiment_name + "_modes_chosen_additional.csv", index=False)
+        df.transpose().to_csv("outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/debug/" + experiment_name + "_modes_chosen_additional.csv", index=False)
 
     return modes_chosen_dict
 
@@ -194,7 +194,7 @@ def modes_chosen_seq2seq(dictionary_agents, indices_of_state, seq2seq_partial, i
 
     if debug_modes_chosen:
         df = pd.DataFrame.from_dict(modes_chosen_dict, orient='index')
-        df.transpose().to_csv("output12/debug/" + experiment_name + "_modes_chosen_seq2seq.csv", index=False)
+        df.transpose().to_csv("outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/debug/" + experiment_name + "_modes_chosen_seq2seq.csv", index=False)
 
     return modes_chosen_dict
 
@@ -277,8 +277,13 @@ def modes_chosen_window_n_zernike(dictionary_agents,
         modes_chosen_dict[worker_id] = np.concatenate(modes_chose_list_current_worker)
 
     if debug_modes_chosen:
+        import os
+        if not os.path.exists("outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/debug/"):
+            os.makedirs("outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/debug/")
+
         df = pd.DataFrame.from_dict(modes_chosen_dict, orient='index')
-        df.transpose().to_csv("output12/debug/" + experiment_name + "_modes_chosen_window_n_zernike.csv", index=False)
+
+        df.transpose().to_csv("outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/debug/" + experiment_name + "_modes_chosen_window_n_zernike.csv", index=False)
 
     return modes_chosen_dict
 

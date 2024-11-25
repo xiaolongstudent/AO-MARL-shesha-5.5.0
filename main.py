@@ -6,7 +6,6 @@ from src.reinforcement_learning.rpc_training.rpc_init import initialize_master_w
 if __name__ == "__main__":
 
     config = Config()
-
     # b) Modify config file (it is easier to input them on args if you want to do multiple experiments)
     args = obtain_args(config)
     # h) Create trainer/test class and train/test
