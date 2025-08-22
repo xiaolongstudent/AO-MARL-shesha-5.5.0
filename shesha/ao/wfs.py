@@ -1,13 +1,13 @@
 ## @package   shesha.ao.wfs
 ## @brief     On the fly modification of the WFS
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -49,7 +49,7 @@ def comp_new_pyr_ampl(nwfs: int, ampli: float, p_wfss: list, p_tel: conf.Param_t
                       npts_force: int = None):
     """ Set the pyramid modulation amplitude
 
-    :parameters:
+    Args:
 
         nwfs : (int): WFS index
 
@@ -92,7 +92,7 @@ def noise_cov(nw: int, p_wfs: conf.Param_wfs, p_atmos: conf.Param_atmos,
     Photon noise: (pi^2/2)*(1/Nphotons)*(d/r0)^2 / (2*pi*d/lambda)^2
     Electronic noise: (pi^2/3)*(wfs.noise^2/N^2photons)*wfs.npix^2*(wfs.npix*wfs.pixsize*d/lambda)^2 / (2*pi*d/lambda)^2
 
-    :parameters:
+    Args:
 
         nw: wfs number
 
@@ -138,7 +138,7 @@ def comp_new_fstop(wfs: Sensors, n: int, p_wfs: conf.Param_wfs, fssize: float,
                    fstop: bytes):
     """ Compute a new field stop for pyrhr WFS
 
-    :parameters:
+    Args:
 
         n : (int) : WFS index
 
@@ -170,5 +170,5 @@ def comp_new_fstop(wfs: Sensors, n: int, p_wfs: conf.Param_wfs, fssize: float,
     # pyr_focmask = np.roll(pyr_focmask,focmask.shape[1]/2,axis=1)
     pyr_focmask = focmask * 1.0  # np.fft.fftshift(focmask*1.0)
     p_wfs._submask = np.fft.fftshift(pyr_focmask).astype(np.float32)
-    p_wfs_fssize = fssize
+    p_wfs._fssize = fssize
     wfs.d_wfs[n].set_submask(p_wfs._submask)

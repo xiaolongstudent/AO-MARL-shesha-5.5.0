@@ -1,13 +1,13 @@
 ## @package   shesha.supervisor
 ## @brief     User layer for initialization and execution of a COMPASS simulation
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -34,7 +34,6 @@
 #
 #  You should have received a copy of the GNU Lesser General Public License along with COMPASS.
 #  If not, see <https://www.gnu.org/licenses/lgpl-3.0.txt>.
-import numpy as np
 from typing import List
 
 class SourceCompass(object):
@@ -51,24 +50,24 @@ class SourceCompass(object):
         """
         self.sources = sources
 
-    def raytrace(self, index, *, tel=None, atm=None, dms=None, ncpa : bool=True, reset : bool = True) -> None:
-        """ Performs the raytracing operation through provided object phase screens 
+    def raytrace(self, index, *, tel=None, atm=None, dms=None, ncpa : bool=True, reset : bool = True, comp_avg_var : bool = True) -> None:
+        """ Performs the raytracing operation through provided object phase screens
         to obtain the phase screen of the SutraSource
 
         Args:
-            index : (int) : Index of the source  to raytrace in self.sources list 
+            index : (int) : Index of the source  to raytrace in self.sources list
 
         Kwargs:
             tel : (TelescopeCompass) : TelescopeCompass instance.
                                                  If provided, raytrace through the telescope aberration phase in the pupil
 
             atm : (AtmosCompass) : AtmosCompass instance.
-                                            If provided, raytrace through the layers phase screens 
+                                            If provided, raytrace through the layers phase screens
 
             dms : (dmsCompass) : DmCompass instance.
                                             If provided, raytrace through the DM shapes
 
-            ncpa : (bool) : If True (default), raytrace through NCPA phase screen of the source (default is array of 0, i.e. no impact) 
+            ncpa : (bool) : If True (default), raytrace through NCPA phase screen of the source (default is array of 0, i.e. no impact)
 
             reset: (bool): reset the phase screen before raytracing. Default is True
         """
@@ -79,11 +78,7 @@ class SourceCompass(object):
             self.sources[index].raytrace(atm._atmos) # Must be done first because of automatic reset of the phase screen when call
         if tel is not None:
             self.sources[index].raytrace(tel._tel)
-        if dms is not None:
-            # print("index",index)
-            # print("dms",dms._dms)
-            self.sources[index].raytrace(dms._dms)
-
         if ncpa:
             self.sources[index].raytrace()
-
+        if dms is not None:
+            self.sources[index].raytrace(dms._dms, do_phase_var=comp_avg_var)

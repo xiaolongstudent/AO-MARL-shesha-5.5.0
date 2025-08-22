@@ -1,13 +1,13 @@
 ## @package   shesha.config
 ## @brief     Parameter classes for COMPASS
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -37,7 +37,7 @@
 
 __all__ = [
         'PATMOS', 'PDMS', 'PGEOM', 'PLOOP', 'PTEL', 'PWFS', 'PTARGET', 'PCONTROLLER',
-        'PCENTROIDER', 'config_setter_utils'
+        'PCENTROIDER', 'config_setter_utils', 'pconfig'
 ]
 
 from .PATMOS import Param_atmos
@@ -49,3 +49,5 @@ from .PWFS import Param_wfs
 from .PTARGET import Param_target
 from .PCENTROIDER import Param_centroider
 from .PCONTROLLER import Param_controller
+from .PCORONO import Param_corono
+from .pconfig import ParamConfig

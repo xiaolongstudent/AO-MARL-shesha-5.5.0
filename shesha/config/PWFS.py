@@ -1,13 +1,13 @@
 ## @package   shesha.config.PWFS
 ## @brief     Param_wfs class definition
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -121,9 +121,9 @@ class Param_wfs:
         # Fakecam mode (uint16)
         self.__fakecam = False
         """ uint16 computation flag for WFS image """
-        self.__maxFluxPerPix = 0
+        self.__max_flux_per_pix = 0
         """ Maximum number of photons allowed before pixel computation (only used if fakecam is True) """
-        self.__maxPixValue = 0
+        self.__max_pix_value = 0
         """ Maximum number of ADU photons allowed in the uint16 image (only used if fakecam is True) """
         # internal kwrd
         self.__pdiam = 0
@@ -161,6 +161,8 @@ class Param_wfs:
         """ (int*) array of 0/1 for valid subaps"""
         self.__phasemap = None
         """ (int*) array of pixels transform from phase screen into subaps phase screens"""
+        self.__ttprojmat = None
+        """ (float*) matrices to project subap phase to geometric slope (considering valid pup)"""
         self.__hrmap = None
         """ (int*) array of pixels transform from minimal FoV image to (in case type is sh or geo)"""
         self.__sincar = None
@@ -546,32 +548,32 @@ class Param_wfs:
 
         :return: (int) : max_flux_per_pix
         """
-        return self.__maxFluxPerPix
+        return self.__max_flux_per_pix
 
     def set_max_flux_per_pix(self, max_flux_per_pix):
         """ Set the max_flux_per_pix
 
         :return: (int) : max_flux_per_pix
         """
-        self.__maxFluxPerPix = csu.enforce_int(max_flux_per_pix)
+        self.__max_flux_per_pix = csu.enforce_int(max_flux_per_pix)
 
     max_flux_per_pix = property(get_maxFluxPerPix, set_max_flux_per_pix)
 
-    def get_maxPixValue(self):
+    def get_max_pix_value(self):
         """ Get the max_pix_value
 
         :return: (int) : max_pix_value
         """
-        return self.__maxPixValue
+        return self.__max_pix_value
 
     def set_max_pix_value(self, max_pix_value):
         """ Set the max_pix_value
 
         :return: (int) : max_pix_value
         """
-        self.__maxPixValue = csu.enforce_int(max_pix_value)
+        self.__max_pix_value = csu.enforce_int(max_pix_value)
 
-    max_pix_value = property(get_maxPixValue, set_max_pix_value)
+    max_pix_value = property(get_max_pix_value, set_max_pix_value)
 
     def get_gsalt(self):
         """ Get the altitude of guide star
@@ -1346,6 +1348,23 @@ class Param_wfs:
                                                     dtype=np.int32)
 
     _phasemap = property(get_phasemap, set_phasemap)
+
+    def get_ttprojmat(self):
+        """ Get the TT subaperture projection matrices for this WFS
+
+        :return: (np.ndarray) : TT projection matrices (2,NPHASE,NSUB)
+        """
+        return self.__ttprojmat
+
+    def set_ttprojmat(self, data):
+        """ Set the TT subaperture projection matrices for this WFS
+
+        :param data: (np.ndarray) : TT projection matrices (2,NPHASE,NSUB)
+        """
+        self.__ttprojmat = csu.enforce_arrayMultiDim(data.copy(), data.shape,
+                                                    dtype=np.float32)
+
+    _ttprojmat = property(get_ttprojmat, set_ttprojmat)
 
     def get_validpuppixx(self):
         """ TODO : docstring

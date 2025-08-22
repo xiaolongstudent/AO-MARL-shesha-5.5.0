@@ -1,13 +1,13 @@
 ## @package   shesha.init.wfs_init
 ## @brief     Initialization of a Sensors object
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -49,7 +49,7 @@ def wfs_init(context: carmaWrap_context, telescope: Telescope, p_wfss: list,
     """
     Create and initialise  a Sensors object
 
-    :parameters:
+    Args:
         context : (carmaWrap_context)
         telescope: (Telescope) : Telescope object
         p_wfss: (list of Param_wfs) : wfs settings
@@ -83,7 +83,7 @@ def wfs_init(context: carmaWrap_context, telescope: Telescope, p_wfss: list,
     nphot = np.array([o._nphotons for o in p_wfss], dtype=np.float32)
     nphot4imat = np.array([o.nphotons4imat for o in p_wfss], dtype=np.float32)
     lgs = np.array([o.gsalt > 0 for o in p_wfss], dtype=np.int32)
-    fakecam = np.array([o.fakecam for o in p_wfss], dtype=np.bool_)
+    fakecam = np.array([o.fakecam for o in p_wfss], dtype=bool)
     maxFlux = np.array([o.max_flux_per_pix for o in p_wfss], dtype=np.int32)
     max_pix_value = np.array([o.max_pix_value for o in p_wfss], dtype=np.int32)
 
@@ -150,11 +150,15 @@ def wfs_init(context: carmaWrap_context, telescope: Telescope, p_wfss: list,
             wfs.compute_pyrfocalplane = p_wfs.pyr_compute_focalplane
             wfs.load_arrays(halfxy, p_wfs._pyr_cx, p_wfs._pyr_cy, p_wfs._pyr_weights,
                             p_wfs._sincar, p_wfs._submask, p_wfs._validsubsx,
-                            p_wfs._validsubsy, p_wfs._phasemap, fluxPerSub)
+                            p_wfs._validsubsy, p_wfs._phasemap, fluxPerSub,
+                            p_wfs._ttprojmat)
         else:
             wfs.load_arrays(p_wfs._phasemap, p_wfs._hrmap, p_wfs._binmap, p_wfs._halfxy,
                             fluxPerSub, p_wfs._validsubsx, p_wfs._validsubsy,
-                            p_wfs._validpuppixx, p_wfs._validpuppixy, p_wfs._ftkernel)
+                            p_wfs._validpuppixx, p_wfs._validpuppixy, p_wfs._ttprojmat,
+                            p_wfs._ftkernel)
+            if (p_wfs._submask is not None):
+                g_wfs.set_field_stop(i, p_wfs._submask, p_wfs._submask.shape[0])
 
     # lgs case
     for i in range(nsensors):

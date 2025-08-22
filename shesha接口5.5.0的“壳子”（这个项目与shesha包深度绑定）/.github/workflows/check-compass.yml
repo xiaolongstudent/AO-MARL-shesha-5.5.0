@@ -1,0 +1,88 @@
+name: Check COMPASS
+
+on:
+  # push: # cannot use it due to EndBug/add-and-commit@v9 action which commit the new report
+  #   branches:
+  #     - main
+  #     - saxoPlus
+  pull_request:
+    # Sequence of patterns matched against refs/heads
+    branches:    
+      - main
+      - saxoPlus
+
+jobs:
+  install_and_test:
+    runs-on: self-hosted
+    strategy:
+      max-parallel: 1
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        repository: ${{ github.event.pull_request.head.repo.full_name }}
+        ref: ${{ github.event.pull_request.head.ref }}
+    - name: Install compass
+      run: |
+        conda install -c compass compass
+    - name: Lint with flake8
+      run: |
+        conda install flake8
+        # stop the build if there are Python syntax errors or undefined names
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+    - name: Check Compass on scao_sh_16x16_8pix
+      run: |
+        export SHESHA_ROOT=$PWD
+        export PYTHONPATH=$SHESHA_ROOT:$PYTHONPATH
+        export PYTHONDONTWRITEBYTECODE=1
+        ipython -i shesha/scripts/closed_loop.py data/par/par4bench/scao_sh_16x16_8pix.py
+    - name: Check Compass
+      run: |
+        export SHESHA_ROOT=$PWD
+        export PYTHONPATH=$SHESHA_ROOT:$PYTHONPATH
+        export PYTHONDONTWRITEBYTECODE=1
+        ./tests/checkCompass.sh
+    - name: Archive check results
+      uses: actions/upload-artifact@v3
+      with:
+        name: report
+        path: |
+          report_E2E.md
+
+    - name: Build coverage file
+      run: |
+        export SHESHA_ROOT=$PWD
+        export PYTHONPATH=$SHESHA_ROOT:$PYTHONPATH
+        export PYTHONDONTWRITEBYTECODE=1
+        pytest --cov-report=term-missing:skip-covered --cov=shesha tests/pytest | tee /tmp/pytest-coverage.txt
+        pytest --junitxml=/tmp/pytest-rtc.xml --cov-report=term-missing:skip-covered --cov=shesha tests/pytest/rtc | tee /tmp/pytest-rtc-coverage.txt
+        pytest --junitxml=/tmp/pytest-rtc_standalone.xml --cov-report=term-missing:skip-covered --cov=shesha tests/pytest/rtc_standalone | tee /tmp/pytest-rtc_standalone-coverage.txt
+        pytest --junitxml=/tmp/pytest-supervisor.xml --cov-report=term-missing:skip-covered --cov=shesha tests/pytest/supervisor | tee /tmp/pytest-supervisor-coverage.txt
+
+    - name: Pytest coverage comment
+      uses: MishaKav/pytest-coverage-comment@main
+      with:
+        multiple-files: |
+          RTC, /tmp/pytest-rtc-coverage.txt, /tmp/pytest-rtc.xml
+          RTC Standalone, /tmp/pytest-rtc_standalone-coverage.txt, /tmp/pytest-rtc_standalone.xml
+          Supervisor, /tmp/pytest-supervisor-coverage.txt, /tmp/pytest-supervisor.xml
+        # pytest-xml-coverage-path: /tmp/pytest-coverage.xml
+        pytest-coverage-path: /tmp/pytest-coverage.txt
+        # junitxml-path: /tmp/pytest.xml
+        title: COMPASS Coverage Report
+        badge-title: Coverage
+        hide-badge: false
+        hide-report: false
+        create-new-comment: false
+        hide-comment: false
+        report-only-changed-files: false
+        remove-link-from-badge: false
+    -  name: Archive report
+       if: vars.GITHUB_REF_NAME != 'main'
+       uses: EndBug/add-and-commit@v9
+       with:
+        default_author: github_actions
+        message: 'Update report_E2E.md'
+        add: 'report_E2E.md'

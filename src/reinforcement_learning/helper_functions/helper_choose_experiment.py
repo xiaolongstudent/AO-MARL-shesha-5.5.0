@@ -654,7 +654,7 @@ def choose_args_testing(args_config, seed):
                      use_cnn_unnormalized="False",
                      tau=0.005,
                      use_baseline_policy="No",
-                     autoencoder_path= None, #"output/autoencoder/save_model2.pth",
+                     autoencoder_path= "output/autoencoder/save_model2.pth",# None, #"output/autoencoder/save_model2.pth",
                      autoencoder_type="cnn_single_subaperture",
                      use_two_agents=used_value_key['use_two_agents'],
                      create_norm_param="True",

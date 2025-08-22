@@ -1,15 +1,15 @@
 #!/usr/bin/env python
 
-## @package   shesha.script.closed_loop
+## @package   shesha.scripts.closed_loop
 ## @brief     script test to simulate a closed loop
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -48,53 +48,48 @@ Options:
   -h --help          Show this help message and exit
   --brahma           Distribute data with brahma
   --bench            For a timed call
-  -i, --interactive  keep the script interactive
-  -d, --devices devices      Specify the devices
-  -n, --niter niter  Number of iterations
-  -g, --generic      Use generic controller
-  -f, --fast         Compute PSF only during monitoring
+  -i --interactive   keep the script interactive
+  -d --devices devices Specify the devices
+  -n --niter niter   Number of iterations
+  -g --generic       Use generic controller
+  -f --fast          Compute PSF only during monitoring
 """
-from shesha.util.utilities import load_config_from_file
+from shesha.config import ParamConfig
 from docopt import docopt
 
 if __name__ == "__main__":
+    arguments = docopt(__doc__)
 
-    config = load_config_from_file("data/par/par4rl/production/production_sh_10x10_2m.py")
+    param_file = arguments["<parameters_filename>"]
+    compute_tar_psf = not arguments["--fast"]
 
-
-    # arguments = docopt(__doc__)
-    #
-    # param_file = arguments["<parameters_filename>"]
-    # compute_tar_psf = not arguments["--fast"]
-
-    # config = load_config_from_file(param_file)
+    config = ParamConfig(param_file)
 
     # Get parameters from file
-    # if arguments["--bench"]:
-    from shesha.supervisor.benchSupervisor import BenchSupervisor as Supervisor
-    # elif arguments["--brahma"]:
-    #     from shesha.supervisor.canapassSupervisor import CanapassSupervisor as Supervisor
-    # else:
-    #     from shesha.supervisor.compassSupervisor import CompassSupervisor as Supervisor
-    #
-    # if arguments["--devices"]:
-    #     config.p_loop.set_devices([
-    #             int(device) for device in arguments["--devices"].split(",")
-    #     ])
-    #
-    # if arguments["--generic"]:
-    #     config.p_controllers[0].set_type("generic")
-    #     print("Using GENERIC controller...")
-    #
-    # if arguments["--niter"]:
-    #     config.p_loop.set_niter(int(arguments["--niter"]))
-    #
+    if arguments["--bench"]:
+        from shesha.supervisor.benchSupervisor import BenchSupervisor as Supervisor
+    elif arguments["--brahma"]:
+        from shesha.supervisor.canapassSupervisor import CanapassSupervisor as Supervisor
+    else:
+        from shesha.supervisor.compassSupervisor import CompassSupervisor as Supervisor
+
+    if arguments["--devices"]:
+        config.p_loop.set_devices([
+                int(device) for device in arguments["--devices"].split(",")
+        ])
+
+    if arguments["--generic"]:
+        config.p_controllers[0].set_type("generic")
+        print("Using GENERIC controller...")
+
+    if arguments["--niter"]:
+        config.p_loop.set_niter(int(arguments["--niter"]))
 
     supervisor = Supervisor(config)
 
-    supervisor.loop(supervisor.config.p_loop.niter)
+    supervisor.loop(supervisor.config.p_loop.niter, compute_tar_psf=compute_tar_psf)
 
-    # if arguments["--interactive"]:
-    #     from shesha.util.ipython_embed import embed
-    #     from os.path import basename
-    #     embed(basename(__file__), locals())
+    if arguments["--interactive"]:
+        from shesha.util.ipython_embed import embed
+        from os.path import basename
+        embed(basename(__file__), locals())

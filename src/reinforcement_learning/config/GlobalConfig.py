@@ -153,7 +153,7 @@ class Config:
         self.original_gain = None
 
         # 4) Autoencoder
-        self.autoencoder['path'] = None  #'output/autoencoder/save_model2.pth'
+        self.autoencoder['path'] = None #'output/autoencoder/save_model2.pth'  #None
         self.autoencoder['type'] = str(config_autoencoder['type'])
 
         # Loading previous weights/replay

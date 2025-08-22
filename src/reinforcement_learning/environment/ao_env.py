@@ -361,6 +361,7 @@ class AoEnv(gym.Env):
 
             return s
 
+
     def render_full_state_information(self, state, action_mu, action_std, num_episode, timestep, title):
         """
         Renders state-action for a given timestep
@@ -567,7 +568,6 @@ class AoEnv(gym.Env):
         """
         Creates the wfs state depending on config parameters
         """
-
         for idx in range(len(self.s_wfs_history)):
             past_s_wfs = self.s_wfs_history[idx]
             if self.normalization_bool:

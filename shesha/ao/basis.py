@@ -1,13 +1,13 @@
 ## @package   shesha.ao.basis
 ## @brief     Functions for modal basis (DM basis, KL, Btt, etc...)
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -45,7 +45,7 @@ import shesha.constants as scons
 from scipy.sparse import csr_matrix
 
 from typing import List
-from tqdm import trange
+from rich.progress import track
 
 
 def compute_KL2V(p_controller: conf.Param_controller, dms: Dms, p_dms: list,
@@ -54,7 +54,7 @@ def compute_KL2V(p_controller: conf.Param_controller, dms: Dms, p_dms: list,
     """ Compute the Karhunen-Loeve to Volt matrix
     (transfer matrix between the KL space and volt space for a pzt dm)
 
-    :parameters:
+    Args:
 
         p_controller: (Param_controller) : p_controller settings
 
@@ -129,7 +129,7 @@ def compute_dm_basis(g_dm, p_dm: conf.Param_dm, p_geom: conf.Param_geom):
             - get the corresponding dm shape
             - apply pupil mask and store in a column
 
-    :parameters:
+    Args:
         g_dm: (Dm) : Dm object
 
         p_dm: (Param_dm) : dm settings
@@ -147,7 +147,7 @@ def compute_dm_basis(g_dm, p_dm: conf.Param_dm, p_geom: conf.Param_geom):
     indx_valid = np.where(pup.flatten("F") > 0)[0].astype(np.int32)
 
     #IFbasis = np.ndarray((indx_valid.size, p_dm._ntotact), dtype=np.float32)
-    for i in trange(p_dm._ntotact):
+    for i in track(range(p_dm._ntotact)):
         g_dm.reset_shape()
         g_dm.comp_oneactu(i, 1.0)
         shape = np.array(g_dm.d_shape)
@@ -172,7 +172,7 @@ def compute_IFsparse(g_dm: list, p_dms: list, p_geom: conf.Param_geom):
             - get the corresponding dm shape
             - apply pupil mask and store in a column
 
-    :parameters:
+    Args:
 
         g_dm: (Dms) : Dms object
 
@@ -204,7 +204,7 @@ def command_on_Btt(rtc: Rtc, dms: Dms, p_dms: list, p_geom: conf.Param_geom, nfi
     """ Compute a command matrix in Btt modal basis (see error breakdown) and set
     it on the sutra_rtc. It computes by itself the volts to Btt matrix.
 
-    :parameters:
+    Args:
 
         rtc: (Rtc) : rtc object
 
@@ -229,12 +229,11 @@ def command_on_Btt(rtc: Rtc, dms: Dms, p_dms: list, p_geom: conf.Param_geom, nfi
 def compute_cmat_with_Btt(rtc: Rtc, Btt: np.ndarray, nfilt: int):
     """ Compute a command matrix on the Btt basis and load it in the GPU
 
-    :parameters:
+    Args:
 
         rtc: (Rtc): rtc object
 
-        Btt: (np.ndarray[ndim=2, dtype=np.float32]) : Btt to volts matrix
-        # Before wrong volts to Btt matrix
+        Btt: (np.ndarray[ndim=2, dtype=np.float32]) : volts to Btt matrix
 
         nfilt: (int): number of modes to filter
     """
@@ -262,7 +261,7 @@ def command_on_KL(rtc: Rtc, dms: Dms, p_controller: conf.Param_controller,
     """ Compute a command matrix in KL modal basis and set
     it on the sutra_rtc. It computes by itself the volts to KL matrix.
 
-    :parameters:
+    Args:
 
         rtc: (Rtc) : rtc object
 
@@ -285,7 +284,7 @@ def command_on_KL(rtc: Rtc, dms: Dms, p_controller: conf.Param_controller,
 def compute_cmat_with_KL(rtc: Rtc, KL2V: np.ndarray, nfilt: int):
     """ Compute a command matrix on the KL basis and load it in the GPU
 
-    :parameters:
+    Args:
 
         rtc: (Rtc): rtc object
 
@@ -313,10 +312,10 @@ def compute_fourier(nActu: int, pitch: float, actu_x_pos: np.ndarray,
                     actu_y_pos: np.ndarray, periodic='n'):
     '''
         Values you are looking for are:
-            config.p_dm0.nact
-            config.p_dm0._pitch
-            config.p_dm0._i1
-            config.p_dm0._j1
+            config.p_dms[0].nact
+            config.p_dms[0]._pitch
+            config.p_dms[0]._i1
+            config.p_dms[0]._j1
     '''
     # Offset xpos and ypos to get integer indices.
     # Compute nact x nact x nact x nact Fourier basis # Periodic condition n / n-1 as option
@@ -362,7 +361,7 @@ def compute_fourier(nActu: int, pitch: float, actu_x_pos: np.ndarray,
 def compute_btt(IFpzt, IFtt, influ_petal=None, return_delta=False):
     """ Returns Btt to Volts and Volts to Btt matrices
 
-    :parameters:
+    Args:
 
         IFpzt : (csr_matrix) : influence function matrix of pzt DM, sparse and arrange as (Npts in pup x nactus)
 
@@ -389,10 +388,10 @@ def compute_btt(IFpzt, IFtt, influ_petal=None, return_delta=False):
 
     # Tip-tilt + piston
     Tp = np.ones((IFtt.shape[0], IFtt.shape[1] + 1))
-    Tp[:, :2] = IFtt.copy()  # THIS IS NOT A SPARSE OBJECT !!!!! STOP PUTTING .toarray() HERE PLEASE !!!
+    Tp[:, :2] = IFtt.copy(
+    )  # THIS IS NOT A SPARSE OBJECT !!!!! STOP PUTTING .toarray() HERE PLEASE !!!
     deltaT = IFpzt.T.dot(Tp) / N
     # Tip tilt projection on the pzt dm
-
     tau = np.linalg.inv(delta).dot(deltaT)
     nfilt = 3  # Piston + tip + tilt
 

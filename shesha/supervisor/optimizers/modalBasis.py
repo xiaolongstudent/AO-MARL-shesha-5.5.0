@@ -1,13 +1,13 @@
 ## @package   shesha.supervisor.optimizers
 ## @brief     User layer for optimizing AO supervisor loop
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -39,7 +39,7 @@ import shesha.util.utilities as util
 import shesha.util.make_pupil as mkP
 import shesha.constants as scons
 import scipy.ndimage
-from scipy.sparse.csr import csr_matrix
+from scipy.sparse import csr_matrix
 import numpy as np
 
 class ModalBasis(object):
@@ -92,12 +92,29 @@ class ModalBasis(object):
         Args:
             dm_index : (int) : Index of the DM
 
-        Return:
+        Returns:
             influ_sparse : (csr_matrix) : influence function phases
         """
         return basis.compute_dm_basis(self._dms._dms.d_dms[dm_index],
                                               self._config.p_dms[dm_index],
                                               self._config.p_geom)
+
+    def compute_influ_delta(self, dm_index: int) -> np.ndarray:
+        """ Computes and return IF delta for the specified DM
+
+        Args:
+            dm_index : (int) : Index of the DM
+
+        Return:
+            influ_delta : (np.ndarray) : influence function deltas
+        """
+        ifsparse =  basis.compute_dm_basis(self._dms._dms.d_dms[dm_index],
+                                              self._config.p_dms[dm_index],
+                                              self._config.p_geom)
+        mpup = self._config.p_geom.get_mpupil()
+        npix_in_pup = np.sum(mpup)
+        ifdelta = ifsparse.dot(ifsparse.T) / np.sum(mpup)
+        return ifdelta.toarray()
 
     def compute_modes_to_volts_basis(self, dms, p_dms,
                                      modal_basis_type: str, *, merged: bool = False,
@@ -112,54 +129,43 @@ class ModalBasis(object):
 
             nbpairs : (int) : TODO description
 
-        Return:
+        Returns:
             modal_basis : (np.ndarray) : modes to volts matrix
 
             projection_matrix : (np.ndarray) : volts to modes matrix (None if "KL")
         """
-
         if (modal_basis_type == "KL2V"):
+            print("Computing KL2V basis...")
             self.modal_basis = basis.compute_KL2V(
-                self._config.p_controllers[0], dms,
-                p_dms, self._config.p_geom,
-                self._config.p_atmos, self._config.p_tel)
-
-            #self.modal_basis = basis.compute_KL2V(
-            #        self._config.p_controllers[0], self._dms._dms,
-            #        self._config.p_dms, self._config.p_geom,
-            #        self._config.p_atmos, self._config.p_tel)
-
-            # TODO (RL) removed the sign change for KL
-            #fnz = util.first_non_zero(self.modal_basis, axis=0)
-            # Computing the sign of the first non zero element
-            #sig = np.sign(modal_basis[[fnz, np.arange(modal_basis.shape[1])]])
-            #sig = np.sign(self.modal_basis[tuple([
-            #        fnz, np.arange(self.modal_basis.shape[1])
-            #])])  # pour remove le future warning!
-            #self.modal_basis *= sig[None, :]
-            #projection_matrix = None
-        elif (modal_basis_type == "Btt"):
-            print("Computing Btt basis...")
-            # TODO (RL) modified to include dms, p_dms instead of self._dms._dms and self._config.p_dms
-            # TODO Otherwise the geo controller would break the calculation of modes
-            self.modal_basis, self.projection_matrix = self.compute_btt_basis(dms=dms,
-                                                                              p_dms=p_dms,
-                                                                              merged=merged,
-                                                                              nbpairs=nbpairs,
-                                                                              return_delta=return_delta)
-            # TODO (RL) removed the sign change otherwise it did not work
+                    self._config.p_controllers[0], self._dms._dms,
+                    self._config.p_dms, self._config.p_geom,
+                    self._config.p_atmos, self._config.p_tel)
             # fnz = util.first_non_zero(self.modal_basis, axis=0)
-            # Computing the sign of the first non zero element
-            #sig = np.sign(modal_basis[[fnz, np.arange(modal_basis.shape[1])]])
+            # # Computing the sign of the first non zero element
+            # #sig = np.sign(modal_basis[[fnz, np.arange(modal_basis.shape[1])]])
             # sig = np.sign(self.modal_basis[tuple([
             #         fnz, np.arange(self.modal_basis.shape[1])
             # ])])  # pour remove le future warning!
             # self.modal_basis *= sig[None, :]
+            # projection_matrix = None 做强化学习不用这些
+        elif (modal_basis_type == "Btt"):
+            print("Computing Btt basis...")
+            self.modal_basis, self.projection_matrix = self.compute_btt_basis(
+                                                        dms, p_dms, 
+                                                        merged=merged, nbpairs=nbpairs,
+                                                        return_delta=return_delta)
+            # fnz = util.first_non_zero(self.modal_basis, axis=0)
+            # # Computing the sign of the first non zero element
+            # #sig = np.sign(modal_basis[[fnz, np.arange(modal_basis.shape[1])]])
+            # sig = np.sign(self.modal_basis[tuple([
+            #         fnz, np.arange(self.modal_basis.shape[1])
+            # ])])  # pour remove le future warning!
+            # self.modal_basis *= sig[None, :] 做强化学习不用这些
         elif (modal_basis_type == "Btt_petal"):
             print("Computing Btt with a Petal basis...")
             self.modal_basis, self.projection_matrix = self.compute_btt_petal()
         else:
-            raise ArgumentError("Unsupported modal basis")
+            raise RuntimeError("Unsupported modal basis")
 
         return self.modal_basis, self.projection_matrix
 
@@ -181,13 +187,12 @@ class ModalBasis(object):
                                               If True, returns delta = IF.T.dot(IF) / N
                                               instead of P
 
-        Return:
+        Returns:
             Btt : (np.ndarray) : Btt modes to volts matrix
 
             projection_matrix : (np.ndarray) : volts to Btt modes matrix
         """
-        # TODO (RL) modified to include dms, p_dms instead of self._dms._dms and self._config.p_dms
-        # TODO Otherwise the geo controller would break the calculation of modes
+        from shesha.ao import basis
         # dms_basis = basis.compute_IFsparse(self._dms._dms, self._config.p_dms, self._config.p_geom)
         dms_basis = basis.compute_IFsparse(dms, p_dms, self._config.p_geom)
         influ_basis = dms_basis[:-2,:]
@@ -203,7 +208,7 @@ class ModalBasis(object):
                 influ_basis2[couples_actus[i, 0], :] += influ_basis2[
                         couples_actus[i, 1], :]
             print("Pairing Done")
-            boolarray = np.zeros(influ_basis2.shape[0], dtype=np.bool)
+            boolarray = np.zeros(influ_basis2.shape[0], dtype=bool)
             boolarray[index_remove] = True
             self.slaved_actus = boolarray
             self.selected_actus = ~boolarray
@@ -237,7 +242,7 @@ class ModalBasis(object):
         Kwargs:
             nbpairs : (int) : Default is None. TODO : description
 
-        Return:
+        Returns:
             pairs : (np.ndarray) : TODO description
 
             discard : (list) : TODO description
@@ -267,7 +272,7 @@ class ModalBasis(object):
         dm_pos_mat = np.c_[dm_posx, dm_posy].T  # one actu per column
 
         pitch = self._config.p_dms[dm_index]._pitch
-        discard = np.zeros(len(dm_posx), dtype=np.bool)
+        discard = np.zeros(len(dm_posx), dtype=bool)
         pairs = []
 
         # For each of the k pieces of the spider
@@ -344,7 +349,7 @@ class ModalBasis(object):
     def compute_btt_petal(self) -> np.ndarray:
         """ Computes a Btt modal basis with Pistons filtered
 
-        Return:
+        Returns:
             Btt : (np.ndarray) : Btt modes to volts matrix
 
             P : (np.ndarray) : volts to Btt modes matrix
@@ -367,7 +372,7 @@ class ModalBasis(object):
         Args:
             modal_basis : (np.ndarray) : Modal basis matrix
 
-        Return:
+        Returns:
             phase_to_modes : (np.ndarray) : phase to modes matrix
         """
         nbmode = modal_basis.shape[1]
@@ -381,5 +386,7 @@ class ModalBasis(object):
             phase = self._target.get_tar_phase(0, pupil=True)
             # Normalisation pour les unites rms en microns !!!
             norm = np.sqrt(np.sum((phase)**2) / S)
+            if norm == 0: norm = 1
             phase_to_modes[i] = phase / norm
         return phase_to_modes
+        

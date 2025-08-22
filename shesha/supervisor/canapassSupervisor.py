@@ -1,13 +1,13 @@
 ## @package   shesha.supervisor.canapassSupervisor
 ## @brief     Initialization and execution of a CANAPASS supervisor
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -43,25 +43,25 @@ Usage:
 with 'parameters_filename' the path to the parameters file
 
 Options:
-  -h, --help          Show this help message and exit
-  -f, --freq freq       change the frequency of the loop
-  -d, --delay delay     change the delay of the loop
+  -h, --help                Show this help message and exit
+  -f, --freq freq           change the frequency of the loop
+  -d, --delay delay         change the delay of the loop
+  -s, --spiders spiders     change the spiders size
+  -n, --nxsub nxsub         change the number of pixels in subap
+  -p, --pupsep pupsep       change the distance between subap center and frame center
+  -g, --gsmag gsmag         change guide star magnitude
+  -r, --rmod rmod           change modulation radius
+  -x, --offaxis offaxis     change all targets position along x axis
+  -r0,--setr0 setr0        change the global r0
 """
 
-import os, sys
 import numpy as np
-import time
 
-from tqdm import tqdm
-import astropy.io.fits as pfits
-from threading import Thread
 from subprocess import Popen, PIPE
 
 import shesha.ao as ao
 import shesha.constants as scons
-from shesha.constants import CentroiderType, WFSType
 
-from typing import Any, Dict, Tuple, Callable, List
 from shesha.supervisor.compassSupervisor import CompassSupervisor
 
 # from carmaWrap.obj import obj_Double2D
@@ -107,47 +107,92 @@ class CanapassSupervisor(CompassSupervisor):
 #     ctrl = self._sim.rtc.d_control[control]
 #     ctrl.set_commandlaw('integrator')
 
+class loopHandler:
+
+    def __init__(self):
+        pass
+
+    def start(self):
+        pass
+
+    def stop(self):
+        pass
+
+    def alive(self):
+        return "alive"
+
 if __name__ == '__main__':
     from docopt import docopt
-    from shesha.util.utilities import load_config_from_file
+    from shesha.config import ParamConfig
     arguments = docopt(__doc__)
-    config = load_config_from_file(arguments["<parameters_filename>"])
-    supervisor = CanapassSupervisor(config, cacao=True)
+    config = ParamConfig(arguments["<parameters_filename>"])
     if (arguments["--freq"]):
         print("Warning changed frequency loop to: ", arguments["--freq"])
-        supervisor.config.p_loop.set_ittime(1 / float(arguments["--freq"]))
+        config.p_loop.set_ittime(1 / float(arguments["--freq"]))
     if (arguments["--delay"]):
         print("Warning changed delay loop to: ", arguments["--delay"])
-        supervisor.config.p_controllers[0].set_delay(float(arguments["--delay"]))
+        config.p_controllers[0].set_delay(float(arguments["--delay"]))
+    if (arguments["--spiders"]):
+        print("Warning changed spiders size to: ", arguments["--spiders"])
+        config.p_tel.set_t_spiders(float(arguments["--spiders"]))
+    if (arguments["--nxsub"]):
+        print("Warning changed number of pixels per subaperture to: ", arguments["--nxsub"])
+        config.p_wfss[0].set_nxsub(int(arguments["--nxsub"]))
+    if (arguments["--pupsep"]):
+        print("Warning changed distance between subaperture center and frame center to: ", arguments["--pupsep"])
+        config.p_wfss[0].set_pyr_pup_sep(int(arguments["--pupsep"]))
+    if (arguments["--gsmag"]):
+        print("Warning changed guide star magnitude to: ", arguments["--gsmag"])
+        config.p_wfss[0].set_gsmag(float(arguments["--gsmag"]))
+    if (arguments["--setr0"]):
+        print("Warning changed r0 to: ", arguments["--setr0"])
+        config.p_atmos.set_r0(float(arguments["--setr0"]))
+    if (arguments["--rmod"]):
+        print("Warning changed modulation radius to: ", arguments["--rmod"])
+        rMod = int(arguments["--rmod"])
+        nbPtMod = int(np.ceil(int(rMod * 2 * 3.141592653589793) / 4.) * 4)
+        config.p_wfss[0].set_pyr_npts(nbPtMod)
+        config.p_wfss[0].set_pyr_ampl(rMod)
+    if (arguments["--offaxis"]):
+        print("Warning changed target x position: ", arguments["--offaxis"])
+        config.p_targets[0].set_xpos(float(arguments["--offaxis"]))
+        config.p_targets[1].set_xpos(float(arguments["--offaxis"]))
+        config.p_targets[2].set_xpos(float(arguments["--offaxis"]))
+
+    supervisor = CanapassSupervisor(config, cacao=True)
 
     try:
         from subprocess import Popen, PIPE
         from hraa.server.pyroServer import PyroServer
-
+        import Pyro4
+        Pyro4.config.REQUIRE_EXPOSE = False
         p = Popen("whoami", shell=True, stdout=PIPE, stderr=PIPE)
         out, err = p.communicate()
         if (err != b''):
             print(err)
-            raise ValueError("ERROR CANNOT RECOGNIZE USER")
+            raise Exception("ERROR CANNOT RECOGNIZE USER")
         else:
             user = out.split(b"\n")[0].decode("utf-8")
             print("User is " + user)
-
+        if (supervisor.corono == None):
+            from shesha.util.pyroEmptyClass import PyroEmptyClass
+            coro2pyro = PyroEmptyClass()
+        else:
+            coro2pyro = supervisor.corono
         devices = [
                 supervisor, supervisor.rtc, supervisor.wfs, supervisor.target,
                 supervisor.tel, supervisor.basis, supervisor.calibration,
-                supervisor.atmos, supervisor.dms
+                supervisor.atmos, supervisor.dms, supervisor.config, supervisor.modalgains, coro2pyro
         ]
-
         names = [
                 "supervisor", "supervisor_rtc", "supervisor_wfs", "supervisor_target",
                 "supervisor_tel", "supervisor_basis", "supervisor_calibration",
-                "supervisor_atmos", "supervisor_dms"
+                "supervisor_atmos", "supervisor_dms", "supervisor_config", "supervisor_modalgains", "supervisor_corono",
         ]
         nname = []
         for name in names:
             nname.append(name + "_" + user)
-        server = PyroServer(listDevices=devices, listNames=names)
+        server = PyroServer(listDevices=devices, listNames=nname)
         #server.add_device(supervisor, "waoconfig_" + user)
         server.start()
     except:

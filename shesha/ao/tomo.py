@@ -1,13 +1,13 @@
 ## @package   shesha.ao.tomo
 ## @brief     Computation of tomographic reconstructor
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -52,7 +52,7 @@ def do_tomo_matrices(ncontrol: int, rtc: Rtc, p_wfss: List[conf.Param_wfs], dms:
                      p_atmos: conf.Param_atmos):
     """ Compute Cmm and Cphim matrices for the MV controller on GPU
 
-    :parameters:
+    Args:
 
         ncontrol: (int): controller index
 
@@ -190,7 +190,7 @@ def selectDMforLayers(p_atmos: conf.Param_atmos, p_controller: conf.Param_contro
                       p_dms: list):
     """ For each atmos layer, select the DM which have to handle it in the Cphim computation for MV controller
 
-    :parameters:
+    Args:
 
         p_atmos : (Param_atmos) : atmos parameters
 
@@ -262,7 +262,7 @@ def create_nact_geom(p_dm: conf.Param_dm):
 def create_piston_filter(p_dm: conf.Param_dm):
     """ Create the piston filter matrix
 
-    :parameters:
+    Args:
 
         p_dm: (Param_dm): dm settings
     """

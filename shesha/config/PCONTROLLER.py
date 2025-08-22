@@ -1,13 +1,13 @@
 ## @package   shesha.config.PCONTROLLER
 ## @brief     Param_controller class definition
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -49,12 +49,16 @@ class Param_controller:
     def __init__(self):
         self.__type = None
         """ type of controller"""
+        self.__command_law = None
+        """ type of command law type for generic controller only"""
         self.__nwfs = None
         """ index of wfss in controller"""
         self.__nvalid = 0
         """ number of valid subaps"""
         self.__nslope = 0
         """ number of slope to handle"""
+        self.__nslope_buffer = 1
+        """ number of previous slopes to use in control"""
         self.__ndm = None
         """ index of dms in controller"""
         self.__nactu = 0
@@ -81,6 +85,8 @@ class Param_controller:
         """ Number of sample of open loop slopes for modal optimization computation"""
         self.__nmodes = None
         """ Number of modes for M2V matrix (modal optimization)"""
+        self.__nmode_buffer = 0
+        """ Number of previous modal vectors to use for control"""
         self.__gmin = 0.
         """ Minimum gain for modal optimization"""
         self.__gmax = 1.
@@ -95,7 +101,67 @@ class Param_controller:
         self.__klgain = None
         """ Gain applied to modes at cMat inversion """
         self.__nstates = 0
-        """ Number of states"""
+        """ Number of states for generic linear controller """
+        self.__nstate_buffer = 0
+        """ Number of state vectors to use for control"""
+        ''' MODAL OPTIMIZATION CLOSE'''
+        self.__close_opti = False
+        """ Flag for modal optimization with close """
+        self.__mgain_init = 1.0
+        """ Initial values of the modal gains """
+        self.__lfdownup = (0.01, 0.01)
+        """ Modal gain correction learning factor """
+        self.__close_learning_factor = 0.3
+        """ Autocorrelation learning factor """
+        self.__close_target = 0.0
+        """ Update framerate """
+        self.__close_update_index = 1
+        """ Target value """
+        self.__n_iir_in = 0
+        """ number of input taps to iir filter """
+        self.__n_iir_out = 0
+        """ number of output taps to iir filter """
+        self.__polc = 0
+        """ flag to do polc in generic linear controller """
+        self.__modal = 0
+        """ flag to use a modal control in generic linenar controller """
+        self.__kernconv4imat = 1
+        """ Flag to use kernel convolution when computing imat """
+        self.__calpix_name = "compass_calPix"
+        self.__loopdata_name = "compass_loopData"
+
+
+    def get_calpix_name(self):
+        """ Get the topic name of calpix stream
+
+        :return: (string) : type
+        """
+        return self.__calpix_name
+
+    def set_calpix_name(self, calpix_name):
+        """ Set the calpix topic name type
+
+        :param t: (string) : type
+        """
+        self.__calpix_name = calpix_name
+
+    calpix_name = property(get_calpix_name, set_calpix_name)
+
+    def get_loopdata_name(self):
+        """ Get the topic name of calpix stream
+
+        :return: (string) : type
+        """
+        return self.__loopdata_name
+
+    def set_loopdata_name(self, loopdata_name):
+        """ Set the loop data topic name type
+
+        :param t: (string) : type
+        """
+        self.__loopdata_name = loopdata_name
+
+    loopdata_name = property(get_loopdata_name, set_loopdata_name)
 
     def get_type(self):
         """ Get the controller type
@@ -112,6 +178,22 @@ class Param_controller:
         self.__type = scons.check_enum(scons.ControllerType, t)
 
     type = property(get_type, set_type)
+
+    def get_command_law(self):
+        """ Get the command law type for generic controller only
+
+        :return: (string) : Command law type
+        """
+        return self.__command_law
+
+    def set_command_law(self, t):
+        """ Set the command law type for generic controller only
+
+        :param t: (string) : Command law type
+        """
+        self.__command_law = scons.check_enum(scons.CommandLawType, t)
+
+    command_law = property(get_command_law, set_command_law)
 
     def get_do_kl_imat(self):
         """Get type imat, for imat on kl set at 1
@@ -240,6 +322,22 @@ class Param_controller:
         self.__nslope = csu.enforce_int(l)
 
     nslope = property(get_nslope, set_nslope)
+
+    def get_nslope_buffer(self):
+        """ Get the number of slope buffers
+
+        :return: (int) : number of slopes buffers
+        """
+        return self.__nslope_buffer
+
+    def set_nslope_buffer(self, l):
+        """ Set the number of slope buffers
+
+        :param l: (int) : number of slope buffers
+        """
+        self.__nslope_buffer = csu.enforce_int(l)
+
+    nslope_buffer = property(get_nslope_buffer, set_nslope_buffer)
 
     def get_nvalid(self):
         """ Get the number of valid subaps
@@ -385,6 +483,22 @@ class Param_controller:
 
     nmodes = property(get_nmodes, set_nmodes)
 
+    def get_nmode_buffer(self):
+        """ Get the number of mode buffers
+
+        :return: (int) : number of mode buffers
+        """
+        return self.__nmode_buffer
+
+    def set_nmode_buffer(self, n):
+        """ Set the number of mode buffers
+
+        :param n: (int) : number of modes buffers
+        """
+        self.__nmode_buffer = csu.enforce_int(n)
+
+    nmode_buffer = property(get_nmode_buffer, set_nmode_buffer)
+
     def get_gmin(self):
         """ Get the minimum gain for modal optimization
 
@@ -484,3 +598,198 @@ class Param_controller:
         self.__nstates = csu.enforce_int(l)
 
     nstates = property(get_nstates, set_nstates)
+
+    def get_nstate_buffer(self):
+        """ Get the number of state buffer
+
+        :return: (int) : number of state buffer
+        """
+        return self.__nstate_buffer
+
+    def set_nstate_buffer(self, l):
+        """ Set the number of state buffer
+
+        :param l: (int) : number of state buffer
+        """
+        self.__nstate_buffer = csu.enforce_int(l)
+
+    nstate_buffer = property(get_nstate_buffer, set_nstate_buffer)
+
+    def get_close_opti(self):
+        """ Get flag for CLOSE modal optimization
+
+        :return: (bool) : CLOSE flag
+        """
+        return self.__close_opti
+
+    def set_close_opti(self, close_opti):
+        """ Set the flag for CLOSE modal optimization
+
+        :param close_opti: (bool) : CLOSE flag
+        """
+        self.__close_opti = close_opti
+
+    close_opti = property(get_close_opti, set_close_opti)
+
+    def get_mgain_init(self):
+        """ Get the initial value of modal gains
+
+        :return: (float) : initial value for modal gains
+        """
+        return self.__mgain_init
+
+    def set_mgain_init(self, mgain_init):
+        """ Set the initial value of modal gains
+
+        :param mgain_init: (float) : init valuo of modal gain
+        """
+        self.__mgain_init = csu.enforce_float(mgain_init)
+
+    mgain_init = property(get_mgain_init, set_mgain_init)
+
+    def get_lfdownup(self):
+        """ Get the autocorrelation learning factors
+
+        :return: (tuple) : learning factors for autocorrelation
+        """
+        return self.__lfdownup
+
+    def set_lfdownup(self, qminus, qplus):
+        """ Set the autocorrelation learning factor
+
+        :param qminus: (float) : learning factor when higher than target
+        :param qplus: (float) : learning factor when lower than target
+        """
+        self.__lfdownup = (csu.enforce_float(qminus), csu.enforce_float(qplus))
+
+    lfdownup = property(get_lfdownup, set_lfdownup)
+
+    def get_close_learning_factor(self):
+        """ Get the modal gain learning factor
+
+        :return: (float) : learning factor for modal gain
+        """
+        return self.__close_learning_factor
+
+    def set_close_learning_factor(self, p):
+        """ Set the modal gain optimization learning factor
+
+        :param p: (float) : learning factor
+        """
+        self.__close_learning_factor = csu.enforce_float(p)
+
+    lf = property(get_close_learning_factor, set_close_learning_factor)
+
+    def get_close_target(self):
+        """ Get the autocorrelation target
+
+        :return: (float) : CLOSE autocorrelation target
+        """
+        return self.__close_target
+
+    def set_close_target(self, t):
+        """ Set the autocorrelation target
+
+        :param t: (float) : close target
+        """
+        self.__close_target = csu.enforce_float(t)
+
+    close_target = property(get_close_target, set_close_target)
+
+    def get_close_update_index(self):
+        """ Get the modal gains update rate
+
+        :return: (int) : CLOSE update index
+        """
+        return self.__close_update_index
+
+    def set_close_update_index(self, idx):
+        """ Set the modal gains update rate
+
+        :param idx: (int) : close update index
+        """
+        self.__close_update_index = csu.enforce_int(idx)
+
+    close_update_index = property(get_close_update_index, set_close_update_index)
+
+    def get_n_iir_in(self):
+        """ Get the number of inputs used in iir filter
+
+        :return: (int) : number of iir inputs
+        """
+        return self.__n_iir_in
+
+    def set_n_iir_in(self, n):
+        """ Set the number of inputs used in iir filter
+
+        :param : (int) : number of iir inputs
+        """
+        self.__n_iir_in = csu.enforce_int(n)
+
+    n_iir_in = property(get_n_iir_in, set_n_iir_in)
+
+    def get_n_iir_out(self):
+        """ Get the number of outputs used in iir filter
+
+        :return: (int) : number of iir outputs
+        """
+        return self.__n_iir_out
+
+    def set_n_iir_out(self, n):
+        """ Set the number of outputs used in iir filter
+
+        :param : (int) : number of iir outputs
+        """
+        self.__n_iir_out = csu.enforce_int(n)
+
+    n_iir_out = property(get_n_iir_out, set_n_iir_out)
+
+    def get_polc(self):
+        """ Get POLC flag (True means using POL slopes)
+
+        :return: (bool) : POLC flag
+        """
+        return self.__polc
+
+    def set_polc(self, p):
+        """ Set POLC flag (True means using POL slopes)
+
+        :param : (bool) : POLC flag
+        """
+        self.__polc = csu.enforce_or_cast_bool(p)
+
+    polc = property(get_polc, set_polc)
+
+    def get_modal(self):
+        """ Get flag to use modal control \n(allows MVM from modes to actu)
+
+        :return: (bool) : modal flag
+        """
+        return self.__modal
+
+    def set_modal(self, m):
+        """ Set flag to use modal control \n(allows MVM from modes to actu)
+
+        :param : (bool) : modal flag
+        """
+        self.__modal = csu.enforce_or_cast_bool(m)
+
+    modal = property(get_modal, set_modal)
+
+    def get_kernconv4imat(self):
+        """Get kernconv4imat, i.e. a flag for using kernel convolution to have better
+        sensitivity on SH spot movements for imat computation
+
+        :return: (int) : kernconv4imat
+        """
+        return self.__kernconv4imat
+
+    def set_kernconv4imat(self, n):
+        """Set kernconv4imat, i.e. a flag for using kernel convolution to have better
+        sensitivity on SH spot movements for imat computation
+
+        :param k: (int) : kernconv4imat
+        """
+        self.__kernconv4imat = csu.enforce_or_cast_bool(n)
+
+    kernconv4imat = property(get_kernconv4imat, set_kernconv4imat)

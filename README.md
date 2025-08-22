@@ -72,7 +72,7 @@ To train a policy you need to run main.py. The following arguments are required 
 For instance, for 2 agents one controlling the tip-tilt and one controlling 80 modes for a 2m telescope with 10x10 subapertures you need to write:
 
 ```
-python main.py --parameters_telescope "production_sh_10x10_2m.py" --world-size 3 --seed 1234 --experiment_name "training" --n_reverse_filtered_from_cmat 5 --n_zernike_start_end 0  80 --port 25003
+python main.py --parameters_telescope "production_sh_10x10_2m.py" --world-size 5 --seed 1234 --experiment_name "training" --n_reverse_filtered_from_cmat 5 --n_zernike_start_end 0  80 --port 25003
 ```
 
 The run will generate a performance file in output that you will be able to extract the training curves from. Also, the weights of both policies and critics from SAC will be saved every certain number of episodes.

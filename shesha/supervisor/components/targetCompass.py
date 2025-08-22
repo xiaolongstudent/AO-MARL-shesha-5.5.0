@@ -1,13 +1,13 @@
 ## @package   shesha.supervisor
 ## @brief     User layer for initialization and execution of a COMPASS simulation
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -78,16 +78,16 @@ class TargetCompass(SourceCompass):
             expo_type : (str) : "se" for short exposure (default)
                                           "le" for long exposure
 
-        Return:
+        Returns:
             psf : (np.ndarray) : PSF
         """
         if (expo_type == "se"):
             return np.fft.fftshift(
                     np.array(self._target.d_targets[tar_index].d_image_se))
         elif (expo_type == "le"):
-            return np.fft.fftshift(
-                    np.array(self._target.d_targets[tar_index].d_image_le)
-            ) / self._target.d_targets[tar_index].strehl_counter
+            nb = self._target.d_targets[tar_index].strehl_counter
+            if nb == 0: nb = 1
+            return np.fft.fftshift(np.array(self._target.d_targets[tar_index].d_image_le)) / nb
         else:
             raise ValueError("Unknown exposure type")
 
@@ -111,7 +111,7 @@ class TargetCompass(SourceCompass):
             pupil : (bool) : If True, applies the pupil on top of the phase screen
                                        Default is False
 
-        Return:
+        Returns:
             tar_phase : (np.ndarray) : Target phase screen
         """
         tar_phase = np.array(self._target.d_targets[tar_index].d_phase)
@@ -139,7 +139,7 @@ class TargetCompass(SourceCompass):
     def get_strehl(self, tar_index: int, *, do_fit: bool = True) -> np.ndarray:
         """ Return the Strehl Ratio of target number tar_index.
         This fuction will return an array of 4 values as
-        [SR SE, SR LE, phase variance SE [µm²], phase variance LE [µm²]]
+        [SR SE, SR LE, phase variance SE [rad²], phase variance LE [rad²]]
 
         Args:
             tar_index : (int) : Target index
@@ -148,7 +148,7 @@ class TargetCompass(SourceCompass):
             do_fit : (bool) : If True (default), fit the PSF
                                         with a sinc before computing SR
 
-        Return:
+        Returns:
             strehl : (np.ndarray) : Strehl ratios and phase variances
         """
         src = self._target.d_targets[tar_index]
@@ -164,7 +164,7 @@ class TargetCompass(SourceCompass):
         Args:
             tar_index : (int) : Index of the target
 
-        Return:
+        Returns:
             ncpa : (np.ndarray) : NCPA phase screen
         """
         return np.array(self._target.d_targets[tar_index].d_ncpa_phase)

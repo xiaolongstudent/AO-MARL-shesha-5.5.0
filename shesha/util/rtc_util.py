@@ -1,13 +1,13 @@
 ## @package   shesha.util.rtc_util
 ## @brief     Some utilities functions for RTC
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -41,7 +41,7 @@ import numpy as np
 def create_interp_mat(dimx: int, dimy: int):
     """TODO doc
 
-    :parameters:
+    Args:
 
         dimx: (int) :
 
@@ -66,7 +66,7 @@ def create_interp_mat(dimx: int, dimy: int):
 def centroid_gain(E, F):
     """ Returns the mean centroid gain
 
-    :parameters:
+    Args:
 
         E : (np.array(dtype=np.float32)) : measurements from WFS
 

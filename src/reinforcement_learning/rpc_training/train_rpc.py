@@ -370,8 +370,6 @@ class TrainerRPC:
         """
         Loads SAC given config_rl parameters
         """
-
-
         # We get state from the environment to calculate input to SAC
 
         for worker_id in range(1, self.world_size):
@@ -575,9 +573,9 @@ class TrainerRPC:
             step += 1
             r_total += np.sum(list(reward_divided.values()))
             self.total_step += 1
-
             # 6. s = s_next
             s = s_next.copy()
+
 
         self.update_all_agents()
 
@@ -986,7 +984,10 @@ class SAC(object):
     # noinspection PyArgumentList
     def load_policy(self, master_rref , worker_id):
         assert self.worker_id == worker_id
-        policy_model_path = f"outputgain_0.4_noice3_worker4_1/output_models/models_rpc/training/trainingexperiment_name_worker_{worker_id}_sac_actor_training_episode_950"
+        # policy_model_path = f"outputgain_0.4_noice3_worker4_1/output_models/models_rpc/training/trainingexperiment_name_worker_{worker_id}_sac_actor_training_episode_950"
+        # output_delay2_work1_hiden256
+        policy_model_path = f"outputgain_0.4_noice3_worker4_1/output_models/models_rpc/training/trainingexperiment_name_worker_{worker_id}_sac_actor_training_episode_500"
+
         model_dict = torch.load(policy_model_path)
         model_state_dict = model_dict["model_state_dict"]
         self.policy.load_state_dict(model_state_dict)

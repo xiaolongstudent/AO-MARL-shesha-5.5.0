@@ -1,13 +1,13 @@
 ## @package   shesha.util.influ_util
 ## @brief     Computation of the influence functions used by the DM
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -34,14 +34,17 @@
 #
 #  You should have received a copy of the GNU Lesser General Public License along with COMPASS.
 #  If not, see <https://www.gnu.org/licenses/lgpl-3.0.txt>.
+
 import numpy as np
 import scipy.special as sp
+
 from shesha.constants import DmType, PatternType
+
 
 def besel_orth(m, n, phi, r):
     """ TODO: docstring
 
-        :parameters:
+        Args:
 
             m:
 
@@ -69,7 +72,7 @@ def besel_orth(m, n, phi, r):
 def bessel_influence(xx, yy, type_i=PatternType.SQUARE):
     """ TODO: docstring
 
-        :parameters:
+        Args:
 
             xx:
 
@@ -137,9 +140,13 @@ def bessel_influence(xx, yy, type_i=PatternType.SQUARE):
 
 
 def makeRigaut(pitch: float, coupling: float, x=None, y=None):
-    """ Compute 'Rigaut-like' influence function
+    """ Compute 'Rigaut-like' influence function.
 
-    :parameters:
+    The arguments <pitch> and <x>, <y> must be in the same unit.
+    This unit shall be [pixels] if one expects that the returned value
+    <smallsize> is also in [pixels].
+
+    Args:
 
         pitch: (float) : pitch of the DM expressed in pixels
 
@@ -186,7 +193,7 @@ def makeRigaut(pitch: float, coupling: float, x=None, y=None):
 def makeRadialSchwartz(pitch: float, coupling: float, x=None, y=None):
     """ Compute radial Schwartz influence function
 
-    :parameters:
+    Args:
 
         pitch: (float) : pitch of the DM expressed in pixels
 
@@ -218,7 +225,7 @@ def makeRadialSchwartz(pitch: float, coupling: float, x=None, y=None):
 def makeSquareSchwartz(pitch: float, coupling: float, x=None, y=None):
     """ Compute Square Schwartz influence function
 
-    :parameters:
+    Args:
 
         pitch: (float) : pitch of the DM expressed in pixels
 
@@ -255,7 +262,7 @@ def makeBlacknutt(pitch: float, coupling: float, x=None, y=None):
     La variable a ete laissee dans le code juste pour compatibilité avec les
     autres fonctions, mais elle n'est pas utilisee.
 
-    :parameters:
+    Args:
 
         pitch: (float): pitch of the DM expressed in pixels
 
@@ -290,7 +297,7 @@ def makeBlacknutt(pitch: float, coupling: float, x=None, y=None):
 def makeGaussian(pitch: float, coupling: float, x=None, y=None):
     """ Compute Gaussian influence function. Coupling parameter is not taken into account
 
-    :parameters:
+    Args:
 
         pitch: (float) : pitch of the DM expressed in pixels
 
@@ -334,7 +341,7 @@ def makeBessel(pitch: float, coupling: float, x: np.ndarray = None, y: np.ndarra
                patternType: bytes = PatternType.SQUARE):
     """ Compute Bessel influence function
 
-    :parameters:
+    Args:
 
         pitch: (float) : pitch of the DM expressed in pixels
 

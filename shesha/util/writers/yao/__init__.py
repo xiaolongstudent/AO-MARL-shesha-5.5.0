@@ -10,7 +10,7 @@ from shesha.util.writers import common
 
 def write_parfiles(sup, *,  param_file_name="./yao.par",
                             fits_file_name="./yao.fits",
-                            screen_dir="./yao_screen",
+                            screen_dir="\"./yao_screen\"",
                             n_wfs=None,
                             controller_id=-1,
                             influ_index=0,
@@ -38,7 +38,8 @@ def write_parfiles(sup, *,  param_file_name="./yao.par",
     conf = sup.config
     if(n_wfs is None):
         n_wfs = len(conf.p_wfss)
-    zerop = conf.p_wfss[0].zerop
+    zerop = conf.p_wfss[0].zerop * sup.get_s_pupil().sum() * \
+                (conf.p_tel.diam / conf.p_geom.pupdiam) ** 2
     lgs_return_per_watt = max([w.lgsreturnperwatt for w in conf.p_wfss])
 
     print("writing parameter file to " + param_file_name)
@@ -64,7 +65,7 @@ def write_parfiles(sup, *,  param_file_name="./yao.par",
     write_targets(param_file_name, conf.p_targets)
     write_gs(param_file_name, zerop, lgs_return_per_watt,
              conf.p_geom.zenithangle)
-    write_atm(param_file_name, conf.p_atmos, screen_dir)
+    write_atm(param_file_name, conf.p_atmos, screen_dir,conf.p_geom.zenithangle)
     write_loop(param_file_name, conf.p_loop, conf.p_controllers[0])
     common.write_data(fits_file_name, sup, wfss_indices=np.arange(n_wfs),
        controller_id=controller_id, influ=influ_index, compose_type=imat_type)

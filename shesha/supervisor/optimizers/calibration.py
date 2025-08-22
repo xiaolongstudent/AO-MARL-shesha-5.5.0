@@ -1,13 +1,13 @@
 ## @package   shesha.supervisor.optimizers
 ## @brief     User layer for optimizing AO supervisor loop
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -35,6 +35,7 @@
 #  You should have received a copy of the GNU Lesser General Public License along with COMPASS.
 #  If not, see <https://www.gnu.org/licenses/lgpl-3.0.txt>.
 import numpy as np
+from rich.progress import track
 
 class Calibration(object):
     """ This optimizer class handles all the modal basis and DM Influence functions
@@ -106,7 +107,7 @@ class Calibration(object):
             self._wfs.compute_wfs_image(w, noise=noise)
         return self._rtc.compute_slopes(controller_index)
 
-    def do_imat_modal(self, controller_index : int, ampli : np.ndarray, modal_basis : np.ndarray, 
+    def do_imat_modal(self, controller_index : int, ampli : np.ndarray, modal_basis : np.ndarray,
                       *, noise : bool=False, nmodes_max : int=0, with_turbu : bool=False, push_pull : bool=False) -> np.ndarray:
         """ Computes an interaction matrix from provided modal basis
 
@@ -128,16 +129,16 @@ class Calibration(object):
             push_pull : (bool) : If True, imat is computed as an average of push and pull ampli
                                             on each mode
 
-        Return:
+        Returns:
             modal_imat : (np.ndarray) : Modal interaction matrix
         """
         modal_imat = np.zeros((self._config.p_controllers[controller_index].nslope, modal_basis.shape[1]))
-
+        print("Starting Modal imat...")
         if (nmodes_max == 0):
             nmodes_max = modal_basis.shape[1]
         v_old = self._rtc.get_command(controller_index)
         self._rtc.open_loop(controller_index, reset=False)
-        for m in range(nmodes_max):
+        for m in track(range(nmodes_max)):
             v = ampli[m] * modal_basis[:, m]
             if ((push_pull is True) or
                 (with_turbu is True)):  # with turbulence/aberrations => push/pull
@@ -181,7 +182,7 @@ class Calibration(object):
 
             wfs_index : (int) : WFS index. Default is 0
 
-        Return:
+        Returns:
             phase_imat : (np.ndarray) : Phase interaction matrix
         """
         imat_phase = np.zeros((cube_phase.shape[0], self._config.p_controllers[controller_index].nslope))
@@ -191,7 +192,7 @@ class Calibration(object):
                 self._wfs.set_ncpa_wfs(wfs_index, cube_phase[nphase, :, :])
                 devpos = self.apply_volts_and_get_slopes(controller_index,
                                                          turbu=with_turbu, noise=noise)
-                self.set_ncpa_wfs(wfs_index, -cube_phase[nphase, :, :])
+                self._wfs.set_ncpa_wfs(wfs_index, -cube_phase[nphase, :, :])
                 devmin = self.apply_volts_and_get_slopes(controller_index,
                                                          turbu=with_turbu, noise=noise)
                 imat_phase[nphase, :] = (devpos - devmin) / 2
@@ -207,11 +208,11 @@ class Calibration(object):
 
         return imat_phase
 
-    def compute_modal_residuals(self, projection_matrix : np.ndarray, 
+    def compute_modal_residuals(self, projection_matrix : np.ndarray,
                                 *, selected_actus : np.ndarray=None) -> np.ndarray:
         """ Computes the modal residual coefficients of the residual phase.
 
-        /!\ It supposed that roket is enabled, and the associated GEO controller is index 1.
+        It supposed that roket is enabled, and the associated GEO controller is index 1.
 
         Uses the projection matrix computed from compute_modes_to_volts_basis (modalBasis module)
 
@@ -221,7 +222,7 @@ class Calibration(object):
         Kwargs:
             selected_actus : (np.ndarray) : TODO : description
 
-        Return:
+        Returns:
             ai : (np.ndarray) : Modal coefficients
         """
         try:
@@ -237,4 +238,3 @@ class Calibration(object):
             v3 = v[-2:]
             ai = projection_matrix.dot(np.concatenate((v2, v3))) * 1000.
         return ai
-

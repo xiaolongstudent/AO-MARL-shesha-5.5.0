@@ -937,6 +937,9 @@ class RlSupervisor(CompassSupervisor):
 
                     if self.pure_delay_0:
                         self.raytrace_target(ncontrol)
+                        self.target.raytrace(1, tel=self.tel, atm=self.atmos, dms=self.dms)
+
+
 
         # if self.cacao: TODO check cacao false always
         #    self.rtc.publish()
@@ -964,6 +967,8 @@ class RlSupervisor(CompassSupervisor):
         """
         if not self.pure_delay_0:
             self.raytrace_target(ncontrol)
+            # self.target.raytrace(1, tel=self.tel, atm=self.atmos)
+
 
         w = ncontrol
         if self.atmos.is_enable:
@@ -971,9 +976,14 @@ class RlSupervisor(CompassSupervisor):
         else:
             self.wfs.raytrace(w, tel=self.tel)
 
+        # self.wfs.raytrace(2,tel=self.tel, atm=self.atmos)
+
+
         if not self.config.p_wfss[w].open_loop and self.dms is not None:
             self.wfs.raytrace(w, dms=self.dms, ncpa=False, reset=False)
         self.wfs.compute_wfs_image(w)
+        # self.wfs.compute_wfs_image(2)
+
 
         #对wfs 采集到的小孔图像去噪
         if self.autoencoder is not None:

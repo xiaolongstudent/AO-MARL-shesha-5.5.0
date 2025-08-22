@@ -1,13 +1,13 @@
 ## @package   shesha.supervisor
 ## @brief     User layer for initialization and execution of a COMPASS simulation
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -73,3 +73,43 @@ class TelescopeCompass(object):
         print("->telescope init")
         self._tel = tel_init(self._context, self._config.p_geom, self._config.p_tel, r0,
                              ittime, self._config.p_wfss)
+
+    def set_input_phase(self, phase : np.ndarray):
+        """ Set a circular buffer of phase screens to be raytraced as a
+        Telescope layer. Buffer size shall be (mpup size, mpup size, N).
+
+        Args:
+            phase : (np.ndarray[ndim=3, dtype=float]) : circular buffer of phase screen
+        """
+        if (phase.ndim != 3 or phase.shape[0] != self._config.p_geom._mpupil.shape[0] or phase.shape[1] != self._config.p_geom._mpupil.shape[1]):
+            print("Input shall be a np.ndarray of dimensions (mpup size, mpup size, N)")
+            return
+        self._tel.set_input_phase(phase)
+
+    def update_input_phase(self):
+        """ Update the index of the current phase screen in the circular buffer, so it passes to the next one
+        """
+        self._tel.update_input_phase()
+
+    def reset_input_phase(self):
+        """ Reset circular buffer d_input_phase
+        """
+        self._tel.reset_input_phase()
+
+    def get_input_phase(self):
+        """ Return the circular buffer of telescope phase screens
+
+        Returns:
+            phase : (np.ndarray[ndim=3, dtype=float]) : circular buffer of phase screen
+        """
+        if (self._tel.d_input_phase is None):
+            return None
+        return np.array(self._tel.d_input_phase)
+
+    def get_input_phase_counter(self):
+        """ Return the index of the current phase screen to be raytraced inside the telescope circular buffer
+
+        Returns:
+            counter : (int) : Phase screen index in the circular buffer
+        """
+        return self._tel.input_phase_counter

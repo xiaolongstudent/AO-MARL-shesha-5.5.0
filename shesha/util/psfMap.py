@@ -1,13 +1,13 @@
 ## @package   shesha.util.psfMap
 ## @brief     class PSF_map
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -38,8 +38,6 @@
 import numpy as np
 import astropy.io.fits as fits
 import matplotlib.pyplot as plt
-import os
-import shutil
 
 
 class PSF_map:
@@ -140,11 +138,11 @@ class PSF_map:
 
     def setTS(self, TS, TSy=None):
         if (TSy is None):
-            self.TSx = LGS[0]
-            self.TSy = LGS[1]
+            self.TSx = TS[0]
+            self.TSy = TS[1]
         else:
-            self.TS = LGS
-            self.TSy = LGS
+            self.TSx = TS
+            self.TSy = TSy
         self._Rts = max(self.TSx.max(), self.TSy.max())
 
     def setWaveLength(self, wl):

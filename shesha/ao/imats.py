@@ -1,13 +1,13 @@
 ## @package   shesha.ao.imats
 ## @brief     Computation implementations of interaction matrix
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -38,7 +38,7 @@
 import numpy as np  # type: ignore
 import time
 from typing import List  # Mypy checker
-from tqdm import tqdm, trange
+from rich.progress import track  # type: ignore
 
 import shesha.config as conf
 import shesha.constants as scons
@@ -56,7 +56,7 @@ def imat_geom(wfs: Sensors, dms: Dms, p_wfss: List[conf.Param_wfs],
               meth: int = 0) -> np.ndarray:
     """ Compute the interaction matrix with a geometric method
 
-    :parameters:
+    Args:
 
         wfs: (Sensors) : Sensors object
 
@@ -69,6 +69,7 @@ def imat_geom(wfs: Sensors, dms: Dms, p_wfss: List[conf.Param_wfs],
         p_controller: (Param_controller) : controller settings
 
         meth: (int) : (optional) method type (0 or 1)
+
     """
 
     nwfs = p_controller.nwfs.size
@@ -94,7 +95,7 @@ def imat_geom(wfs: Sensors, dms: Dms, p_wfss: List[conf.Param_wfs],
     for nmc in range(ndm):
         nm = p_controller.ndm[nmc]
         dms.d_dms[nm].reset_shape()
-        for i in tqdm(range(p_dms[nm]._ntotact), desc="DM%d" % nmc):
+        for i in track(range(p_dms[nm]._ntotact), description="DM%d" % nmc):
             dms.d_dms[nm].comp_oneactu(i, p_dms[nm].push4imat)
             nslps = 0
             for nw in range(nwfs):
@@ -117,7 +118,7 @@ def imat_init(ncontrol: int, rtc: Rtc, dms: Dms, p_dms: list, wfs: Sensors, p_wf
               dataBase: dict = {}, use_DB: bool = False) -> None:
     """ Initialize and compute the interaction matrix on the GPU
 
-    :parameters:
+    Args:
 
         ncontrol: (int) : controller's index
 
@@ -157,9 +158,9 @@ def imat_init(ncontrol: int, rtc: Rtc, dms: Dms, p_dms: list, wfs: Sensors, p_wf
         t0 = time.time()
         if M2V is not None:
             p_controller._M2V = M2V.copy()
-            rtc.do_imat_basis(ncontrol, dms, M2V.shape[1], M2V, p_controller.klpush)
+            rtc.do_imat_basis(ncontrol, dms, M2V.shape[1], M2V, p_controller.klpush, p_controller.kernconv4imat)
         else:
-            rtc.do_imat(ncontrol, dms)
+            rtc.do_imat(ncontrol, dms, p_controller.kernconv4imat)
         print("done in %f s" % (time.time() - t0))
         imat = np.array(rtc.d_control[ncontrol].d_imat)
         if use_DB:
@@ -179,21 +180,20 @@ def imat_init(ncontrol: int, rtc: Rtc, dms: Dms, p_dms: list, wfs: Sensors, p_wf
 #   do imat geom
 
 
-def imat_geom_ts_multiple_direction(wfs: Sensors, dms: Dms, p_wfss: List[conf.Param_wfs],
+def imat_geom_ts_multiple_direction(wfs: Sensors, dms: Dms, p_ts: conf.Param_wfs,
                                     p_dms: List[conf.Param_dm], p_geom: conf.Param_geom,
                                     ind_TS: int, ind_dmseen: List, p_tel: conf.Param_tel,
                                     x, y, meth: int = 0) -> np.ndarray:
     """ Compute the interaction matrix with a geometric method for multiple truth sensors (with different direction)
 
-    :parameters:
-
+    Args:
         wfs: (Sensors) : Sensors object
 
         dms: (Dms) : Dms object
 
-        p_wfss: (list of Param_wfs) : wfs settings
+        p_ts: (Param_wfs) : truth sensor settings
 
-        ind_TS: (int) : index of the truth sensor in the wfs settings list
+        ind_TS: (int) : index of the truth sensor in Sensors (wfs)
 
         p_dms: (list of Param_dm) : dms settings
 
@@ -201,17 +201,16 @@ def imat_geom_ts_multiple_direction(wfs: Sensors, dms: Dms, p_wfss: List[conf.Pa
 
         p_controller: (Param_controller) : controller settings
 
+    Kwargs:
         meth: (int) : (optional) method type (0 or 1)
     """
-    if (ind_TS < 0):
-        ind_TS = len(p_wfss) - 1
     imat_size2 = 0
     print("DMS_SEEN: ", ind_dmseen)
     for nm in ind_dmseen:
         imat_size2 += p_dms[nm]._ntotact
     imat_cpu = np.ndarray((0, imat_size2))
 
-    for i in trange(x.size, desc="TS pos"):
+    for i in track(range(x.size), description="TS pos"):
         xpos = x[i]
         ypos = y[i]
         for k in ind_dmseen:
@@ -228,26 +227,25 @@ def imat_geom_ts_multiple_direction(wfs: Sensors, dms: Dms, p_wfss: List[conf.Pa
             wfs.d_wfs[ind_TS].d_gs.remove_layer(p_dms[k].type, k)
             wfs.d_wfs[ind_TS].d_gs.add_layer(p_dms[k].type, k, xoff, yoff)
         imat_cpu = np.concatenate(
-                (imat_cpu, imat_geom_ts(wfs, dms, p_wfss, ind_TS, p_dms, ind_dmseen,
+                (imat_cpu, imat_geom_ts(wfs, dms, p_ts, ind_TS, p_dms, ind_dmseen,
                                         meth)), axis=0)
 
     return imat_cpu
 
 
-def imat_geom_ts(wfs: Sensors, dms: Dms, p_wfss: conf.Param_wfs, ind_TS: int,
+def imat_geom_ts(wfs: Sensors, dms: Dms, p_ts: conf.Param_wfs, ind_TS: int,
                  p_dms: List[conf.Param_dm], ind_DMs: List[int],
                  meth: int = 0) -> np.ndarray:
     """ Compute the interaction matrix with a geometric method for a single truth sensor
 
-    :parameters:
-
+    Args:
         wfs: (Sensors) : Sensors object
 
         dms: (Dms) : Dms object
 
-        p_wfss: (list of Param_wfs) : wfs settings
+        p_ts: (Param_wfs) : truth sensor settings
 
-        ind_TS: (int) : index of the truth sensor in the wfs settings list
+        ind_TS: (int) : index of the truth sensor in Sensors (wfs)
 
         p_dms: (list of Param_dm) : dms settings
 
@@ -255,12 +253,13 @@ def imat_geom_ts(wfs: Sensors, dms: Dms, p_wfss: conf.Param_wfs, ind_TS: int,
 
         p_controller: (Param_controller) : controller settings
 
+    Kwargs:
         meth: (int) : (optional) method type (0 or 1)
     """
 
     #nwfs = 1 #p_controller.nwfs.size # as parameter list of indices for wfs if several ts (only 1 ts for now)
     ndm = len(ind_DMs)  #p_controller.ndm.size # as parameter list of indices of used dms
-    imat_size1 = p_wfss[ind_TS]._nvalid * 2  # as parameter (nvalid)
+    imat_size1 = p_ts._nvalid * 2  # as parameter (nvalid)
     imat_size2 = 0
 
     # for nw in range(nwfs):
@@ -277,9 +276,9 @@ def imat_geom_ts(wfs: Sensors, dms: Dms, p_wfss: conf.Param_wfs, ind_TS: int,
     imat_cpu = np.zeros((imat_size1, imat_size2), dtype=np.float64)
     ind = 0
     cc = 0
-    for nm in tqdm(ind_DMs, desc="imat geom DM"):
+    for nm in track(ind_DMs, description="imat geom DM"):
         dms.d_dms[nm].reset_shape()
-        for i in trange(p_dms[nm]._ntotact, desc="imat geom actu"):
+        for i in track(range(p_dms[nm]._ntotact), description="imat geom actu"):
             dms.d_dms[nm].comp_oneactu(i, p_dms[nm].push4imat)
             wfs.d_wfs[ind_TS].d_gs.raytrace(dms, rst=1)
             wfs.d_wfs[ind_TS].slopes_geom(meth)
@@ -292,12 +291,21 @@ def imat_geom_ts(wfs: Sensors, dms: Dms, p_wfss: conf.Param_wfs, ind_TS: int,
     return imat_cpu
 
 
-def get_metaD(sup, TS_xpos=None, TS_ypos=None, ind_TS=-1, save_metaD=False, nControl=0):
+def get_metaD(sup, p_wfs, TS_xpos=None, TS_ypos=None, ind_TS=-1, n_control=0):
     """Create an interaction matrix for the current simulation given TS position
-    :parameters:
-        sim : : current COMPASS simulation
+
+    Args:
+        sup : (CompassSupervisor) : current COMPASS simulation
+
+        p_ts: (Param_wfs) : truth sensor settings
+
         TS_xpos : np.ndarray : TS position (x axis)
+
         TS_ypos : np.ndarray : TS position (y axis)
+
+        ind_TS: (int) : index of the truth sensor in Sensors (wfs)
+
+        n_control : (int) : index of the controller
 
     :return:
         metaD :  np.ndarray :interaction matrix
@@ -320,7 +328,7 @@ def get_metaD(sup, TS_xpos=None, TS_ypos=None, ind_TS=-1, save_metaD=False, nCon
     if (TS_ypos.size < 1):
         TS_ypos = np.zeros((1))
 
-    return imat_geom_ts_multiple_direction(sup.wfs._wfs, sup.dms._dms, sup.config.p_wfss,
+    return imat_geom_ts_multiple_direction(sup.wfs._wfs, sup.dms._dms, p_wfs,
                                            sup.config.p_dms, sup.config.p_geom, ind_TS,
-                                           sup.config.p_controllers[nControl].ndm,
+                                           sup.config.p_controllers[n_control].ndm,
                                            sup.config.p_tel, TS_xpos, TS_ypos)

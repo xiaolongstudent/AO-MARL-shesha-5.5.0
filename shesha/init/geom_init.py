@@ -1,13 +1,13 @@
 ## @package   shesha.init.geom_init
 ## @brief     Initialization of the system geometry and of the Telescope object
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -51,14 +51,22 @@ def tel_init(context: carmaWrap_context, p_geom: conf.Param_geom, p_tel: conf.Pa
     """
         Initialize the overall geometry of the AO system, including pupil and WFS
 
-    :parameters:
+    Args:
         context: (carmaWrap_context) : context
+
         p_geom: (Param_geom) : geom settings
+
         p_tel: (Param_tel) : telescope settings
+
         r0: (float) : atmos r0 @ 0.5 microns
+
         ittime: (float) : 1/loop frequency [s]
+
         p_wfss: (list of Param_wfs) : wfs settings
-        dm: (list of Param_dm) : (optional) dms settings [=None]
+
+    Kwargs:
+        dm: (list of Param_dm) : dms settings [=None]
+
     :return:
         telescope: (Telescope): Telescope object
 
@@ -113,7 +121,7 @@ def init_wfs_geom(p_wfs: conf.Param_wfs, r0: float, p_tel: conf.Param_tel,
     """Compute the geometry of WFSs: valid subaps, positions of the subaps,
     flux per subap, etc...
 
-    :parameters:
+    Args:
         p_wfs: (Param_wfs) : wfs settings
 
         r0: (float) : atmos r0 @ 0.5 microns
@@ -132,9 +140,8 @@ def init_wfs_geom(p_wfs: conf.Param_wfs, r0: float, p_tel: conf.Param_tel,
     if p_geom.pupdiam:
         if p_wfs.type == scons.WFSType.SH or p_wfs.type == scons.WFSType.PYRHR or p_wfs.type == scons.WFSType.PYRLR:
             pdiam = p_geom.pupdiam // p_wfs.nxsub
-            if (p_geom.pupdiam % p_wfs.nxsub > 0):
+            if ((pdiam * p_wfs.nxsub) % 2):
                 pdiam += 1
-
     else:
         pdiam = -1
 
@@ -168,7 +175,7 @@ def init_wfs_geom(p_wfs: conf.Param_wfs, r0: float, p_tel: conf.Param_tel,
 def init_wfs_size(p_wfs: conf.Param_wfs, r0: float, p_tel: conf.Param_tel, verbose=1):
     """Compute all the parameters usefull for further WFS image computation (array sizes)
 
-    :parameters:
+    Args:
         p_wfs: (Param_wfs) : wfs settings
 
         r0: (float) : atmos r0 @ 0.5 microns
@@ -180,7 +187,7 @@ def init_wfs_size(p_wfs: conf.Param_wfs, r0: float, p_tel: conf.Param_tel, verbo
     Scheme to determine arrays sizes
     sh :
     k = 6
-    p = k * d/r0
+    p = k * d/r0  # size of seeing blob
     n = int(2*d*v/lambda/CONST.RAD2ARCSEC)+1
     N = fft_goodsize(k*n/v*lambda/r0*CONST.RAD2ARCSEC)
     u = k * lambda / r0 * CONST.RAD2ARCSEC / N
@@ -188,21 +195,25 @@ def init_wfs_size(p_wfs: conf.Param_wfs, r0: float, p_tel: conf.Param_tel, verbo
     v = n * u
     Nt = v * Npix
 
-    pyr :
+    PYRAMID CASE :
     Fs = field stop radius in arcsec
     N size of big array for FFT in pixels
     P pupil diameter in pixels
     D diameter of telescope in m
     Nssp : number of pyr measurement points in the pupil
 
+    # Rf is the radius of field stop in pixels
     Rf = Fs . N . D / lambda / P
     ideally we choose : Fs = lambda / D . Nssp / 2
 
-    if we want good sampling of r0 (avoid aliasing of speckles)
+    If we want a good sampling of r0 (to avoid aliasing of speckles that may
+    roll over the FoV), we have to specify a FoV of the FFT support that is
+    larger than seeing by a factor <m> at least equal to 2 (at a very minimum)
+    or 3 (for a better comfort..). This writes as:
     P > D / r0 . m
-    with m = 2 or 3
+    with m = 2 or 3. This condition is equivalent to put <m> pixels per r0.
 
-    to get reasonable space between pupil images : N > P.(2 + 3S)
+    To get reasonable space between pupil images : N > P.(2 + 3S)
     with S close to 1
     N must be a power of 2
 
@@ -211,16 +222,15 @@ def init_wfs_size(p_wfs: conf.Param_wfs, r0: float, p_tel: conf.Param_tel, verbo
     and actual pupil size on camera images would be P / Nssp
 
     """
-
     r0 = r0 * (p_wfs.Lambda * 2)**(6. / 5)
 
     if (r0 != 0):
         if (verbose):
-            print("r0 for WFS :", "%3.2f" % r0, " m")
+            print("r0 for WFS :", "%4.3f" % r0, " m")
         # seeing = CONST.RAD2ARCSEC * (p_wfs.lambda * 1.e-6) / r0
         if (verbose):
             print("seeing for WFS : ",
-                  "%3.2f" % (CONST.RAD2ARCSEC * (p_wfs.Lambda * 1.e-6) / r0), "\"")
+                  "%4.3f" % (CONST.RAD2ARCSEC * (p_wfs.Lambda * 1.e-6) / r0), "\"")
 
     if (p_wfs._pdiam <= 0):
         # this case is usualy for the wfs with max # of subaps
@@ -242,7 +252,7 @@ def init_wfs_size(p_wfs: conf.Param_wfs, r0: float, p_tel: conf.Param_tel, verbo
             nrebin = max(2, nrebin)
             # first atempt on a rebin factor
 
-            # since we clipped pdiam we have to be carreful in nfft computation
+            # since we clipped pdiam we have to be careful in nfft computation
             Nfft = util.fft_goodsize(
                     int(pdiam / subapdiam * nrebin / p_wfs.pixsize * CONST.RAD2ARCSEC *
                         (p_wfs.Lambda * 1.e-6)))
@@ -296,7 +306,7 @@ def init_wfs_size(p_wfs: conf.Param_wfs, r0: float, p_tel: conf.Param_tel, verbo
     elif (p_wfs.type == scons.WFSType.PYRHR or p_wfs.type == scons.WFSType.PYRLR):
         pdiam = pdiam * p_wfs.nxsub
         m = 3
-        # fft_goodsize( m * pdiam)
+        # Nfft = util.fft_goodsize( m * pdiam)
         Nfft = int(2**np.ceil(np.log2(m * pdiam)))
 
         nrebin = pdiam // p_wfs.nxsub
@@ -304,6 +314,7 @@ def init_wfs_size(p_wfs: conf.Param_wfs, r0: float, p_tel: conf.Param_tel, verbo
             nrebin += 1  # we choose to have a divisor of Nfft
             pdiam = nrebin * p_wfs.nxsub
             Nfft = int(2**np.ceil(np.log2(m * pdiam)))
+            # Nfft = util.fft_goodsize( m * pdiam)
 
         qpixsize = (pdiam *
                     (p_wfs.Lambda * 1.e-6) / p_tel.diam * CONST.RAD2ARCSEC) / Nfft
@@ -344,7 +355,7 @@ def compute_nphotons(wfs_type, ittime, optthroughput, diam, cobs=0, nxsub=0, zer
                      gsmag=0, lgsreturnperwatt=0, laserpower=0, verbose=1):
     ''' Determines the number of photons TBC
 
-    :parameters:
+    Args:
         wfs_type: (scons.WFSType) : wfs type: SH or PYRHR.
 
         ittime: (float) : 1/loop frequency [s].
@@ -412,7 +423,7 @@ def init_pyrhr_geom(p_wfs: conf.Param_wfs, r0: float, p_tel: conf.Param_tel,
     """Compute the geometry of PYRHR WFSs: valid subaps, positions of the subaps,
     flux per subap, etc...
 
-    :parameters:
+    Args:
         p_wfs: (Param_wfs) : wfs settings
 
         r0: (float) : atmos r0 @ 0.5 microns
@@ -489,7 +500,7 @@ def init_pyrhr_geom(p_wfs: conf.Param_wfs, r0: float, p_tel: conf.Param_tel,
 
     # Valid pixels identification
     # Generate buffer with pupil at center
-    pup = np.zeros((pyrsize, pyrsize), dtype=np.int32)
+    pup = np.zeros((pyrsize, pyrsize))#, dtype=np.int32)
     pup[pyrsize // 2 - p_geom._n // 2:pyrsize // 2 + p_geom._n // 2,
         pyrsize // 2 - p_geom._n // 2:pyrsize // 2 + p_geom._n // 2] = \
             p_geom._mpupil
@@ -608,13 +619,38 @@ def init_pyrhr_geom(p_wfs: conf.Param_wfs, r0: float, p_tel: conf.Param_tel,
 
     pyrtmp = np.zeros((p_geom._n, p_geom._n), dtype=np.int32)
 
+    ttprojmat = np.zeros([p_wfs.npix * p_wfs.npix,p_wfs._nvalid*2], dtype=np.float32)
     for i in range(len(validsubsx)):
         indi = istart[validsubsy[i]]  # +2-1 (yorick->python
         indj = jstart[validsubsx[i]]
         phasemap[:, i] = tmp[indi:indi + p_wfs.npix, indj:indj + p_wfs.npix].flatten("C")
         pyrtmp[indi:indi + p_wfs.npix, indj:indj + p_wfs.npix] = i
 
+        Sx = np.zeros([p_wfs.npix,p_wfs.npix],dtype=np.float32)
+        Sy = np.zeros([p_wfs.npix,p_wfs.npix],dtype=np.float32)
+
+        subapmask = p_geom._mpupil.T[indi:indi + p_wfs._pdiam,
+                                   indj:indj + p_wfs._pdiam]
+        for ii in range(p_wfs.npix):
+            for jj in range(p_wfs.npix):
+                Sx[ii,jj] += subapmask[ii,jj-1] if jj>0 else 0
+                Sx[ii,jj] -= subapmask[ii,jj+1] if jj+1 < p_wfs.npix else 0
+                Sx[ii,jj]  *= subapmask[ii,jj]
+                Sy[ii,jj] += subapmask[ii-1,jj] if ii>0 else 0
+                Sy[ii,jj] -= subapmask[ii+1,jj] if ii+1 < p_wfs.npix else 0
+                Sy[ii,jj]  *= subapmask[ii,jj]
+        Sx_den = -Sx.cumsum(axis=1).sum()
+        Sy_den = -Sy.cumsum(axis=0).sum()
+        if Sx_den == 0 or Sy_den == 0:
+            continue
+        Sx /= Sx_den
+        Sy /= Sy_den
+        ttprojmat[:,i] = Sx.flatten()
+        ttprojmat[:,i+p_wfs._nvalid] = Sy.flatten()
+
     p_wfs._phasemap = phasemap
+    p_wfs._ttprojmat = ttprojmat * p_geom.get_pupdiam() / p_tel.get_diam() \
+            * CONST.RAD2ARCSEC * 1e-6
 
     p_wfs._pyr_offsets = pyrtmp  # pshift
 
@@ -624,7 +660,7 @@ def init_sh_geom(p_wfs: conf.Param_wfs, r0: float, p_tel: conf.Param_tel,
     """Compute the geometry of SH WFSs: valid subaps, positions of the subaps,
     flux per subap, etc...
 
-    :parameters:
+    Args:
         p_wfs: (Param_wfs) : wfs settings
 
         r0: (float) : atmos r0 @ 0.5 microns
@@ -677,14 +713,40 @@ def init_sh_geom(p_wfs: conf.Param_wfs, r0: float, p_tel: conf.Param_tel,
 
     n = p_wfs._nvalid
     # for i in range(p_wfs._nvalid):
+    ttprojmat = np.zeros([p_wfs._pdiam**2,p_wfs._nvalid*2], dtype=np.float32)
     for i in range(n):
         indi = istart[p_wfs._validsubsy[i]]  # +2-1 (yorick->python)
         indj = jstart[p_wfs._validsubsx[i]]
         phasemap[:, i] = tmp[indi:indi + p_wfs._pdiam, indj:indj +
                              p_wfs._pdiam].flatten()
+
+        Sx = np.zeros([p_wfs._pdiam,p_wfs._pdiam],dtype=np.float32)
+        Sy = np.zeros([p_wfs._pdiam,p_wfs._pdiam],dtype=np.float32)
+
+        subapmask = p_geom._mpupil.T[indi:indi + p_wfs._pdiam,
+                                   indj:indj + p_wfs._pdiam]
+        for ii in range(p_wfs._pdiam):
+            for jj in range(p_wfs._pdiam):
+                Sx[ii,jj] += subapmask[ii,jj-1] if jj>0 else 0
+                Sx[ii,jj] -= subapmask[ii,jj+1] if jj+1 < p_wfs._pdiam else 0
+                Sx[ii,jj]  *= subapmask[ii,jj]
+                Sy[ii,jj] += subapmask[ii-1,jj] if ii>0 else 0
+                Sy[ii,jj] -= subapmask[ii+1,jj] if ii+1 < p_wfs._pdiam else 0
+                Sy[ii,jj]  *= subapmask[ii,jj]
+        Sx_den = -Sx.cumsum(axis=1).sum()
+        Sy_den = -Sy.cumsum(axis=0).sum()
+        if Sx_den == 0 or Sy_den == 0:
+            continue
+        Sx /= Sx_den
+        Sy /= Sy_den
+        ttprojmat[:,i] = Sx.flatten()
+        ttprojmat[:,i+p_wfs._nvalid] = Sy.flatten()
+
     p_wfs._phasemap = phasemap
     p_wfs._validsubsx *= p_wfs.npix
     p_wfs._validsubsy *= p_wfs.npix
+    p_wfs._ttprojmat = ttprojmat * p_geom.get_pupdiam() / p_tel.get_diam() \
+            * CONST.RAD2ARCSEC * 1e-6
 
     # this is a phase shift of 1/2 pix in x and y
     halfxy = np.linspace(0, 2 * np.pi, p_wfs._Nfft + 1)[0:p_wfs._pdiam] / 2.
@@ -762,6 +824,7 @@ def init_sh_geom(p_wfs: conf.Param_wfs, r0: float, p_tel: conf.Param_tel,
         np.cos(p_geom.zenithangle * CONST.DEG2RAD) ** 0.6
     fwhmseeing = p_wfs.Lambda / \
         (p_tel.diam / np.sqrt(p_wfs.nxsub ** 2. + (dr0 / 1.5) ** 2.)) / 4.848
+    fwhmseeing = min(fwhmseeing, 2 * p_wfs.pixsize)
     kernelfwhm = np.sqrt(fwhmseeing**2. + p_wfs.kernel**2.)
 
     tmp = util.makegaussian(p_wfs._Ntot, kernelfwhm / p_wfs._qpixsize, p_wfs._Ntot // 2,
@@ -808,13 +871,34 @@ def init_sh_geom(p_wfs: conf.Param_wfs, r0: float, p_tel: conf.Param_tel,
                                            p_tel.diam, nxsub=p_wfs.nxsub,
                                            lgsreturnperwatt=p_wfs.lgsreturnperwatt,
                                            laserpower=p_wfs.laserpower, verbose=verbose)
+    # Creating field stop mask
+    if(p_wfs.fssize != 0):
+        fftsize = util.fft_goodsize(p_geom._mpupil.shape[0])
+        fspixsize = (p_geom.pupdiam *
+                    (p_wfs.Lambda * 1.e-6) / p_tel.diam * CONST.RAD2ARCSEC) / fftsize
 
+        fsradius_pixels = int(p_wfs.fssize / fspixsize / 2.)
+        if (p_wfs.fstop == scons.FieldStopType.ROUND):
+            focmask = util.dist(fftsize, xc=fftsize / 2. - 0.5,
+                                yc=fftsize / 2. - 0.5) < (fsradius_pixels)
+        elif (p_wfs.fstop == scons.FieldStopType.SQUARE):
+            X = np.indices((fftsize, fftsize)) + 1  # TODO: +1 ??
+            x = X[1] - (fftsize + 1.) / 2.
+            y = X[0] - (fftsize + 1.) / 2.
+            focmask = (np.abs(x) <= (fsradius_pixels)) * \
+                (np.abs(y) <= (fsradius_pixels))
+        else:
+            msg = "wfs fstop must be FieldStopType.[ROUND|SQUARE]"
+            raise ValueError(msg)
+
+        pyr_focmask = focmask * 1.0  # np.fft.fftshift(focmask*1.0)
+        p_wfs._submask = np.fft.fftshift(pyr_focmask)
 
 def geom_init(p_geom: conf.Param_geom, p_tel: conf.Param_tel, padding=2):
     """
         Initialize the system geometry
 
-    :parameters:
+    Args:
         p_geom: (Param_geom) : geometry settings
         p_tel: (Param_tel) : telescope settings
         padding: (optional) : padding factor for PYRHR geometry
@@ -846,7 +930,7 @@ def geom_init(p_geom: conf.Param_geom, p_tel: conf.Param_tel, padding=2):
     # useful pupil + 4 pixels
     p_geom._mpupil = util.pad_array(p_geom._spupil, p_geom._n).astype(np.float32)
 
-    if (p_tel.std_piston and p_tel.std_tt):
+    if (p_tel.std_piston or p_tel.std_tt):
         p_geom._phase_ab_M1 = mkP.make_phase_ab(p_geom.pupdiam, p_geom.pupdiam, p_tel,
                                                 p_geom._spupil, cent,
                                                 cent).astype(np.float32)
@@ -872,7 +956,7 @@ def geom_init_generic(p_geom, pupdiam, t_spiders=0.01, spiders_type="six", xc=0,
                       real=0, cobs=0):
     """Initialize the system geometry
 
-    :parameters:
+    Args:
         pupdiam: (long) : linear size of total pupil
 
         t_spiders: (float) : secondary supports ratio.

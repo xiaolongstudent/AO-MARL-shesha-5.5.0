@@ -1,13 +1,13 @@
 ## @package   shesha.init.atmos_init
 ## @brief     Initialization of a Atmos object
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -40,7 +40,7 @@ from shesha.constants import CONST
 import shesha.util.iterkolmo as itK
 import shesha.util.hdf5_util as h5u
 from shesha.sutra_wrap import carmaWrap_context, Atmos
-from tqdm import tqdm
+from rich.progress import track
 import numpy as np
 
 
@@ -50,16 +50,26 @@ def atmos_init(context: carmaWrap_context, p_atmos: conf.Param_atmos,
     """
     Initializes an Atmos object
 
-    :parameters:
+    Args:
         context: (carmaWrap_context): GPU device context
+
         p_atmos: (Param_atmos): Atmosphere parameters
+
         p_tel: (Param_tel): Telescope parameters
+
         p_geom: (Param_geom): Geometry parameters
-        ittime: (float): (optional) exposition time [s]
-        p_wfss: (list of Param_wfs): (optional) WFS parameters
-        p_targets: (list of Param_target): (optional) target parameters
-        dataBase: (dict): (optional) dictionary for data base
-        use_DB: (bool): (optional) flag for using the dataBase system
+
+    Kwargs:
+        ittime: (float): exposition time [s]
+
+        p_wfss: (list of Param_wfs): WFS parameters
+
+        p_targets: (list of Param_target): target parameters
+
+        dataBase: (dict): dictionary for data base
+
+        use_DB: (bool): flag for using the dataBase system
+
     :return:
         atm : (Atmos): Atmos object
     """
@@ -120,7 +130,7 @@ def atmos_init(context: carmaWrap_context, p_atmos: conf.Param_atmos,
                 p_atmos._deltax, p_atmos._deltay, context.active_device)
 
     print("Creating turbulent layers :")
-    for i in tqdm(range(p_atmos.nscreens)):
+    for i in track(range(p_atmos.nscreens)):
         if "A" in dataBase:
             A, B, istx, isty = h5u.load_AB_from_dataBase(dataBase, i)
         else:

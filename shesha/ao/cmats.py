@@ -1,13 +1,13 @@
 ## @package   shesha.ao.cmats
 ## @brief     Computation implementations of command matrix
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -57,7 +57,7 @@ def generic_imat_inversion(
 ) -> np.ndarray:
     """ Generic numpy modal interaction matrix inversion function
 
-        :parameters:
+        Args:
 
             M2V: (nActu x nModes) : modal basis matrix
 
@@ -85,7 +85,7 @@ def cmat_init(ncontrol: int, rtc: Rtc, p_controller: conf.Param_controller,
               nmodes: int = 0) -> None:
     """ Compute the command matrix on the GPU
 
-    :parameters:
+    Args:
 
         ncontrol: (int) :
 
@@ -165,7 +165,7 @@ def Btt_for_cmat(rtc, dms, p_dms, p_geom):
     """ Compute a command matrix in Btt modal basis (see error breakdown) and set
     it on the sutra_rtc. It computes by itself the volts to Btt matrix.
 
-    :parameters:
+    Args:
 
         rtc: (Rtc) : rtc object
 
@@ -176,7 +176,7 @@ def Btt_for_cmat(rtc, dms, p_dms, p_geom):
         p_geom: (Param_geom): geometry settings
 
     """
-
+    from shesha.ao import basis
     IFs = basis.compute_IFsparse(dms, p_dms, p_geom).T
     n = IFs.shape[1]
     IFtt = IFs[:, -2:].toarray()
@@ -194,7 +194,7 @@ def get_cmat(D, nfilt, Btt=None, rtc=None, svd=None):
         get_cmat(D,nfilt,Btt=BTT,rtc=RTC)
         get_cmat(D,nfilt,svd=SVD)
 
-    :parameters:
+    Args:
         D: (np.ndarray[ndim=2, dtype=np.float32]): interaction matrix
 
         nfilt: (int): number of element to filter

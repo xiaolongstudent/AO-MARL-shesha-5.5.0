@@ -1,5 +1,5 @@
 # from src.error_budget.error_budget_multiple_agents import ExperimentManager
-from src.autoencoder.obtain_dataset_autoencoder import ExperimentManager
+from src.autoencoder.obtain_dataset_noise_image import ExperimentManager
 import argparse
 import numpy as np
 import random
@@ -23,6 +23,4 @@ if __name__ == "__main__":
 
     exp = ExperimentManager(args)
     exp.run()
-
-
 

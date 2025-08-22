@@ -10,6 +10,12 @@ from torch.distributed.rpc import RRef, rpc_sync, rpc_async, remote
 import torch.distributed.rpc as rpc
 from src.reinforcement_learning.rpc_training.helper_rpc.helper_rewards import get_separated_rewards
 from src.reinforcement_learning.rpc_training.helper_rpc.helper_states import get_modes_chosen
+import math
+from hcipy import FFMpegWriter
+import matplotlib.pyplot as plt
+
+
+
 
 """
 1. worker_id: int
@@ -219,7 +225,6 @@ class TrainerRPC:
                                            self.total_step)
         self.sr_list.append(rl_performance_dict['sr_se_test'])
         np.save(f"outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/sr_list",self.sr_list)
-
 
 
     def manage_saving_networks(self):
@@ -519,7 +524,7 @@ class TrainerRPC:
             elif self.config_rl.env_rl['do_more_evaluations']:
                 num_test = 5
             else:
-                num_test = 50
+                num_test = 2
             if self.num_episode % num_test == 0:
                 self.seed += 1
                 self.env.set_sim_seed(self.seed)
@@ -600,15 +605,26 @@ class TrainerRPC:
                                     self.env.supervisor.volts2modes.shape[0]))
         r_per_agent_test, r_total_test, done, s = np.zeros(len(self.dictionary_agents)), 0, False, self.env.reset()
 
+        sr_le_test_list = []
         sr_se_test_list = []
         sr_sl_test_list = []
         dm_images = []  #
-        for test_step in range(self.config_rl.env_rl['max_steps_per_episode']):
+        rms_list = []
+        orginal_rms_list = []
+        orginal_sr_list = []
+        r0=0.16
 
+        # print("r0======",self.current_r0 )
+        # save_file = "test_model_123"
+        # if not os.path.exists(save_file):
+        #     os.makedirs(save_file)
+
+        # anim = FFMpegWriter(os.path.join(save_file, f'r0{r0}_animation.mp4'), framerate=10)
+        # plt.figure(figsize=(18,5))
+
+        for test_step in range(self.config_rl.env_rl['max_steps_per_episode']):
             # 0. Divided states for agents
             s_divided = self.divide_states_for_agents(s)
-
-
             # 1. Choose action based on state
             if controller == "RL":
                 a, _, _ = self.choose_action(s_divided, eval_mode=True)
@@ -616,18 +632,68 @@ class TrainerRPC:
                 a = None
 
             # 2. Step on the environment
-
+            # self.env.supervisor.rtc.open_loop(0,False)
             s_next, reward_divided, done =\
                 self.env_step(a, linear_control=True if controller == "Integrator" else False)
-            dm_image = self.env.supervisor.dms.get_dm_shape(0)
-            dm_images.append(dm_image)
-            # Agent metrics
+            # dm_image = self.env.supervisor.dms.get_dm_shape(0)
+            # dm_images.append(dm_image)
+            # wfs_image =  self.env.supervisor.wfs.get_wfs_image(0)
+
+            wfs_phase  = self.env.supervisor.wfs.get_wfs_phase(0)
+            wfs_phase = wfs_phase - wfs_phase.mean()
+            pupil = self.env.supervisor.get_m_pupil()
+            residual_img = wfs_phase*pupil
+            wfs_phase = wfs_phase[np.where(pupil)]
+            wavelength1 = self.env.supervisor.config.p_targets[0].Lambda
+            opd = (wfs_phase*wavelength1)/(2*np.pi)
+            rms = np.sqrt(np.mean(opd**2))
+            rms_list.append(rms)
+
+            # original_wfs_phase = self.env.supervisor.wfs.get_wfs_phase(2)
+            # original_wfs_phase =  original_wfs_phase - original_wfs_phase.mean()
+            # pupil = self.env.supervisor.get_m_pupil()
+            # original_wfs_phase = original_wfs_phase[np.where(pupil)]
+            # original_opd = (original_wfs_phase * wavelength1) / (2 * np.pi)
+            # original_rms = np.sqrt(np.mean(original_opd ** 2))
+            # orginal_rms_list.append(original_rms)
+
+            # print("rms=============",rms)
+            # print("original_rms=============",original_rms)
+            #
+            # # Agent metrics
+            # #% Phase variance to micron rms converter
+            # #rmsMicron = @(x) 1e6*sqrt(x).*ngs.wavelength/2/pi;
             r_total_test += np.sum(list(reward_divided.values()))
             r_per_agent_test += np.array(list(reward_divided.values()))
             sr_se_test = self.env.supervisor.target.get_strehl(0)[0]
             sr_sl_test = self.env.supervisor.target.get_strehl(0)[1]
+            target_image = self.env.supervisor.target.get_tar_image(0)
             sr_se_test_list.append(sr_se_test)
             sr_sl_test_list.append(sr_sl_test)
+            # print("sr----------",sr_se_test)
+            #
+            # original_sr = self.env.supervisor.target.get_strehl(1)[0]
+            # original_target_image = self.env.supervisor.target.get_tar_image(1)
+            # print("original_sr------------",original_sr)
+            #
+            # w, h = original_target_image.shape
+            # original_tar_image = original_target_image[int(w / 15 * 7):int(w / 15 * 8), int(h / 15 * 7):int(h / 15 * 8)]
+
+            # plt.clf()
+            # plt.subplot(1, 3, 1)
+            # plt.title(f"original_image rms{original_rms:.3f}λ\n sr:{original_sr:.3f}")
+            # plt.imshow(original_target_image)
+            #
+            # plt.subplot(1, 3, 2)
+            # plt.title(f"residual phase rms{rms:.3f}λ")
+            # plt.imshow(residual_img)
+            #
+            # w, h = target_image.shape
+            # target_image = target_image[int(w / 15 * 7):int(w / 15 * 8), int(h / 15 * 7):int(h / 15 * 8)]
+            # plt.subplot(1, 3, 3)
+            # plt.title(f"model control image sr{sr_se_test:.3f}")
+            # plt.imshow(target_image)
+            # anim.add_frame()
 
             # Geometric save commands
             if len(self.env.supervisor.config.p_controllers) > 1:
@@ -637,10 +703,19 @@ class TrainerRPC:
             # 3. s = s_next
             s = s_next.copy()
 
+        # plt.close()
+        # anim.close()
+        #
         sr_le_test = self.env.supervisor.target.get_strehl(0)[1]
         sr_se_test = np.average(sr_se_test_list)
-        print('Test episode: {} \tSeed: {} \tCurrent Reward: {:.4f} \tSR LE: {:.4f} \tAvg SR SE: {:.4f}'
-              .format(self.num_test_episode, self.seed, r_total_test, sr_le_test, sr_se_test))
+        #
+        # plt.figure()
+        # plt.plot(sr_se_test_list)
+        # plt.show()
+
+
+        print('Test episode: {} \tSeed: {} \tCurrent Reward: {:.4f}  \tAvg SR SE: {:.4f} RMS:{:.4f}'
+              .format(self.num_test_episode, self.seed, r_total_test, np.mean(sr_le_test_list), np.mean(sr_se_test_list) ,np.mean(rms_list)))
 
         self.num_test_episode += 1
 
@@ -649,7 +724,8 @@ class TrainerRPC:
                              "sr_le_test": sr_le_test,
                              "sr_se_test": sr_se_test,
                              "sr_se_test_list":sr_se_test_list,
-                             "sr_sl_test_list":sr_sl_test_list}
+                             "sr_sl_test_list":sr_sl_test_list,
+                             "rms_list":rms}
 
         if len(self.env.supervisor.config.p_controllers) > 1:
             # Geometric metrics, geometric index is 1
@@ -663,7 +739,7 @@ class TrainerRPC:
         else:
             geometric_performance = None
 
-        return agent_performance,geometric_performance
+        return agent_performance,geometric_performance,
 
     def manage_delayed_mdp(self, s, a, s_next):
         """
@@ -985,7 +1061,10 @@ class SAC(object):
     # noinspection PyArgumentList
     def load_policy(self, master_rref , worker_id):
         assert self.worker_id == worker_id
-        policy_model_path = f"outputgain_0.4_noice3_layer1_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan/output_models/models_rpc/training/trainingexperiment_name_worker_{worker_id}_sac_actor_training_episode_500"
+        #outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan
+        # policy_model_path = f"outputgain_0.4_noice3_layer1_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan/output_models/models_rpc/training/trainingexperiment_name_worker_{worker_id}_sac_actor_training_episode_500"
+        policy_model_path = f"outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan/output_models/models_rpc/training/trainingexperiment_name_worker_{worker_id}_sac_actor_training_episode_500"
+
         model_dict = torch.load(policy_model_path)
         model_state_dict = model_dict["model_state_dict"]
         self.policy.load_state_dict(model_state_dict)

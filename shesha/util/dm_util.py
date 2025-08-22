@@ -1,13 +1,13 @@
 ## @package   shesha.util.dm_util
 ## @brief     Utilities function for DM geometry initialization
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -36,16 +36,20 @@
 #  If not, see <https://www.gnu.org/licenses/lgpl-3.0.txt>.
 
 import numpy as np
+from astropy.io import fits
+
 import shesha.constants as scons
 from shesha.constants import CONST
+
 from . import utilities as util
+
 from typing import List, Union
 
 
 def dim_dm_support(cent: float, extent: int, ssize: int):
     """ Compute the DM support dimensions
 
-    :parameters:
+    Args:
 
         cent : (float): center of the pupil
 
@@ -67,7 +71,7 @@ def dim_dm_patch(pupdiam: int, diam: float, type: bytes, alt: float,
                  xpos_wfs: List[float], ypos_wfs: List[float]):
     """ compute patchDiam for DM
 
-    :parameters:
+    Args:
 
         pupdiam: (int) : pupil diameter
 
@@ -104,7 +108,7 @@ def createSquarePattern(pitch: float, nxact: int):
     Creates a list of M=nxact^2 actuator positions spread over an square grid.
     Coordinates are centred around (0,0).
 
-    :parameters:
+    Args:
 
         pitch: (float) : distance in pixels between 2 adjacent actus
 
@@ -129,7 +133,7 @@ def createHexaPattern(pitch: float, supportSize: int):
     Coordinates are centred around (0,0).
     The support that limits the grid is a square [-supportSize/2, supportSize/2].
 
-    :parameters:
+    Args:
 
         pitch: (float) : distance in pixels between 2 adjacent actus
 
@@ -163,7 +167,7 @@ def createDoubleHexaPattern(pitch: float, supportSize: int, pupAngleDegree: floa
     Coordinates are centred around (0,0).
     The support of the grid is a square [-supportSize/2,vsupportSize/2].
 
-    :parameters:
+    Args:
 
         pitch: (float) : distance in pixels between 2 adjacent actus
         supportSize: (int) : size in pixels of the support over which the coordinate list
@@ -247,7 +251,7 @@ def select_actuators(xc: np.ndarray, yc: np.ndarray, nxact: int, pitch: int, cob
     """
     Select the "valid" actuators according to the system geometry
 
-    :parameters:
+    Args:
 
         xc: actuators x positions (origine in center of mirror)
 
@@ -300,7 +304,7 @@ def select_actuators(xc: np.ndarray, yc: np.ndarray, nxact: int, pitch: int, cob
 def make_zernike(nzer: int, size: int, diameter: int, xc=-1., yc=-1., ext=0):
     """Compute the zernike modes
 
-    :parameters:
+    Args:
 
         nzer: (int) : number of modes
 
@@ -326,7 +330,7 @@ def make_zernike(nzer: int, size: int, diameter: int, xc=-1., yc=-1., ext=0):
     if (yc == -1):
         yc = size / 2
 
-    radius = (diameter + 1.) / 2.
+    radius = (diameter) / 2.
     zr = util.dist(size, xc, yc).astype(np.float32).T / radius
     zmask = np.zeros((zr.shape[0], zr.shape[1], nzer), dtype=np.float32)
     zmaskmod = np.zeros((zr.shape[0], zr.shape[1], nzer), dtype=np.float32)
@@ -342,7 +346,7 @@ def make_zernike(nzer: int, size: int, diameter: int, xc=-1., yc=-1., ext=0):
 
     zr = zr * zmask[:, :, 0]
 
-    x = np.tile(np.linspace(1, size, size).astype(np.float32), (size, 1))
+    x = np.tile(np.arange(size).astype(np.float32), (size, 1))
     zteta = np.arctan2(x - yc, x.T - xc).astype(np.float32)
 
     z = np.zeros((size, size, nzer), dtype=np.float32)
@@ -353,13 +357,13 @@ def make_zernike(nzer: int, size: int, diameter: int, xc=-1., yc=-1., ext=0):
         if ext:
             for i in range((n - m) // 2 + 1):
                 z[:, :, zn] = z[:, :, zn] + (-1.) ** i * zrmod ** (n - 2. * i) * float(np.math.factorial(n - i)) / \
-                    float(np.math.factorial(i) * np.math.factorial((n + m) / 2 - i) *
-                          np.math.factorial((n - m) / 2 - i))
+                    float(np.math.factorial(i) * np.math.factorial((n + m) // 2 - i) *
+                          np.math.factorial((n - m) // 2 - i))
         else:
             for i in range((n - m) // 2 + 1):
                 z[:, :, zn] = z[:, :, zn] + (-1.) ** i * zr ** (n - 2. * i) * float(np.math.factorial(n - i)) / \
-                    float(np.math.factorial(i) * np.math.factorial((n + m) / 2 - i) *
-                          np.math.factorial((n - m) / 2 - i))
+                    float(np.math.factorial(i) * np.math.factorial((n + m) // 2 - i) *
+                          np.math.factorial((n - m) // 2 - i))
 
         if ((zn + 1) % 2 == 1):
             if (m == 0):
@@ -385,7 +389,7 @@ def zernumero(zn: int):
     Returns the radial degree and the azimuthal number of zernike
     number zn, according to Noll numbering (Noll, JOSA, 1976)
 
-    :parameters:
+    Args:
 
         zn: (int) : zernike number
 
@@ -407,3 +411,123 @@ def zernumero(zn: int):
                     j = j + 1
                     if (j == zn):
                         return n, m
+
+
+dm_fits_content="""The DM FITS file is compatible with COMPASS DM database.
+    The primary header contains the keywords:
+    * PIXSIZE : the size of the pixels on the maps in meters.
+
+    * XCENTER, YCENTER are the coordinates of the centre of the pupil, expressed in pixels, in a reference frame conformable to (i,j) coords. The translation from pixels to meters can be done using:
+        meters = (pixels - XCENTER) * PIXSIZE
+
+    * PUPM is the diameter of pupil stop (meters).
+
+    * Additionally the header provides the user with:
+        PITCHM is the size of the DM pitch in meters (may be handy is some cases and useful when using this file with COMPASS software)
+
+    This FITS file contains 3 extensions:
+    * Extension 'I1_J1' are the coordinate (i,j) of the first pixel for each of the 2D maps (see Extension 2), so that they can be inserted in a larger map.
+
+    * Extension 'INFLU' are the 2D maps of the influence functions.
+
+    * Extension 'XPOS_YPOS' are the coordinates (xpos, ypos) of the  physical location of the actuator, in pixels. This data is provided for information only and does not directly participate to build the DM. The present coordinates are positions in M1 space, i.e. include the distorsion due to telescope optics.
+"""
+
+def add_doc_content(*content):
+    """adds content to a docstring (to be used as decorator)"""
+    def dec(obj):
+        obj.__doc__ = obj.__doc__.format(content)
+        return obj
+    return dec
+
+def write_dm_custom_fits(file_name, i1, j1, influ_cube, xpos, ypos, xcenter, ycenter,pixsize,pupm, *,pitchm=None):
+    """Write a custom_dm fits file based on user provided data (see args)
+
+    Args:
+        file_name : (string) : name of the custom dm fits file
+
+        i1 : (np.ndarray) : x coordinate of the first pixel for each of the 2D maps
+
+        j1 : (np.ndarray) : y coordinate of the first pixel for each of the 2D maps
+
+        influ_cube : (np.ndarray) : 2D maps of the influence functions
+
+        xpos : (np.ndarray) : x coordinate of the physical location of the actuator
+
+        ypos : (np.ndarray) : y coordinate of the physical location of the actuator
+
+        xcenter : (float) : x coordinate of the centre of the pupil, expressed in pixels
+
+        ycenter : (float) : y coordinate of the centre of the pupil, expressed in pixels
+
+        pixsize : (float) : size of the pixels on the maps in meters
+
+        pupm : (float) : diameter of pupil stop (meters)
+
+    Kwargs:
+        pitchm : (float) : size of the DM pitch in meters. Defaults to None.
+
+    Returns:
+        (HDUList) : custom_dm data
+    """
+    fits_version=1.2
+    primary_hdu = fits.PrimaryHDU()
+    primary_hdu.header['VERSION'] = (fits_version,'file format version')
+    primary_hdu.header['XCENTER'] = (xcenter     ,'DM centre along X in pixels')
+    primary_hdu.header['YCENTER'] = (ycenter     ,'DM centre along Y in pixels')
+    primary_hdu.header['PIXSIZE'] = (pixsize     ,'pixel size (meters)')
+    primary_hdu.header['PUPM']    = (pupm        ,'nominal pupil diameter (meters)')
+    if(pitchm is not None):
+        primary_hdu.header['PITCHM'] = (pitchm,'DM pitch (meters)')
+
+    for line in dm_fits_content.splitlines():
+        primary_hdu.header.add_comment(line)
+
+    image_hdu = fits.ImageHDU(np.c_[i1 , j1 ].T, name="I1_J1")
+    image_hdu2 = fits.ImageHDU(influ_cube, name="INFLU")
+    image_hdu3 = fits.ImageHDU(np.c_[xpos, ypos].T, name="XPOS_YPOS")
+
+    dm_custom = fits.HDUList([primary_hdu, image_hdu, image_hdu2, image_hdu3])
+
+    dm_custom.writeto(file_name,overwrite=1)
+    return dm_custom
+
+@add_doc_content(dm_fits_content)
+def export_custom_dm(file_name, p_dm, p_geom, *, p_tel=None):
+    """Return an HDUList (FITS) with the data required to create a COMPASS custom_dm
+
+    {}
+
+    Args:
+        p_dm   : (Param_dm)   : dm settings
+
+        p_geom : (Param_geom) : geometry settings
+
+    Kwargs:
+        file_name : (string) : if set, the HDU is written to the file specified by this variable
+
+        p_tel : (Param_tel) : telescope settings, used to provide the diameter (if not provided, the default diameter id obtained from the p_geom as pupdiam*pixsize)
+
+    Returns:
+        (HDUList) : custom_dm data
+    """
+
+    pixsize = p_geom.get_pixsize()
+    diam = p_geom.pupdiam * p_geom._pixsize
+    if(p_tel is not None):
+        diam = p_tel.diam
+    xpos = p_dm._xpos
+    ypos = p_dm._ypos
+    i1 = p_dm._i1 + p_dm._n1
+    j1 = p_dm._j1 + p_dm._n1
+    influ = p_dm._influ / p_dm.unitpervolt
+
+    xcenter = p_geom.cent
+    ycenter = p_geom.cent
+
+    pitchm=None
+    if p_dm._pitch :
+        pitchm = p_dm._pitch*pixsize
+    dm_custom = write_dm_custom_fits(file_name,i1,j1,influ,xpos,ypos,xcenter,ycenter,pixsize,diam,pitchm=pitchm)
+
+    return dm_custom

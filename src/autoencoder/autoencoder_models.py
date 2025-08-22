@@ -6,7 +6,12 @@ from torch.utils.data import DataLoader, Dataset, TensorDataset
 import torchvision
 import torchvision.transforms as transforms
 import torch.nn.functional as F
+import cv2
+import pywt
+import pywt.data
+# from ksvd import KSVD
 
+from skimage.metrics import structural_similarity as ssim
 
 class DenoisingAutoencoderLinear(nn.Module):
     def __init__(self,
@@ -225,11 +230,12 @@ class Autoencoder:
             with torch.no_grad():
                 predicted = self.model(noisy_tensor.view(1,1,16,16,-1)).cpu().numpy().reshape(16,16,-1)
         elif self.type == "cnn_single_subaperture":
-            with torch.no_grad():
-                if only_inference_time:
-                    predicted = self.model(noisy_tensor)
-                else:
-                    predicted = self.model(noisy_tensor.view(-1,1,16,16)).cpu().numpy().reshape(-1,16,16)
+            predicted = self.traditional_denoise(noisy_tensor)
+            # with torch.no_grad():
+            #     if only_inference_time:
+            #         predicted = self.model(noisy_tensor)
+            #     else:
+            #         predicted = self.model(noisy_tensor.view(-1,1,16,16)).cpu().numpy().reshape(-1,16,16)
         elif self.type == "cnn_centroids":
             with torch.no_grad():
                 predicted = self.model(noisy_tensor.view(1,1,16,16,-1)).cpu().numpy()
@@ -238,6 +244,91 @@ class Autoencoder:
                 # print(noisy_tensor.shape)
                 predicted = self.model(noisy_tensor.reshape(-1,16*16*64)).cpu().numpy().reshape(16,16,-1)
         return predicted
+
+    def traditional_denoise(self,noisy_tesor):
+        shap = noisy_tesor.shape
+        denoisy_image = []
+
+        for i in range(shap[0]):
+            image = noisy_tesor[i]
+            # clear_img = predicted[i].cpu().detach().numpy()
+            image = image.cpu().detach().numpy()
+            de_image = self.gaussionBlur(image)
+            denoisy_image.append(de_image)
+            # unnoise_filter_diff, diff = ssim(de_image, clear_img, full=True,
+            #                                  data_range=clear_img - clear_img)
+            #
+            # noise_filter_diff, diff = ssim(image, clear_img, full=True,
+            #                                  data_range=clear_img - clear_img)
+            #
+            # plt.figure()
+            # plt.suptitle("ksvd filter denoising")
+            # plt.subplot(1, 3, 1)
+            # plt.title(f"noisy_image ")
+            # plt.imshow(image)
+            #
+            # plt.subplot(1, 3, 2)
+            # plt.title(f"denoisy_image ssim{unnoise_filter_diff:.2f}")
+            # plt.imshow(de_image)
+            #
+            # plt.subplot(1, 3, 3)
+            # plt.title(f"model_image")
+            # plt.imshow(clear_img)
+            # plt.show()
+        denoisy_image = np.array(denoisy_image)
+        return  denoisy_image
+
+
+    #高斯去噪
+    def gaussionBlur(self, noisy_image):
+        denoised_image = cv2.GaussianBlur(noisy_image, (3, 3), 0)
+        return denoised_image
+
+    #傅里叶变换
+    def fft_filter(self,noisy_image):
+        # 进行傅里叶变换，转换到频域
+        f = np.fft.fft2(noisy_image)
+        fshift = np.fft.fftshift(f)  # 将频谱的低频移到中心
+
+        # 生成低通滤波器（设置阈值，去除高频部分）
+        rows, cols = noisy_image.shape
+        crow, ccol = rows // 2, cols // 2  # 频谱中心
+        radius = 30  # 滤波器的半径，控制去噪程度
+        mask = np.zeros((rows, cols), np.uint8)
+        center = [crow, ccol]
+        x, y = np.fft.fftfreq(rows), np.fft.fftfreq(cols)
+        dist = np.sqrt((x[:, None] - x[None, :]) ** 2 + (y[:, None] - y[None, :]) ** 2)
+        mask[dist < radius] = 1  # 保留低频部分
+
+        # 应用低通滤波器
+        fshift = fshift * mask
+
+        # 进行逆傅里叶变换，回到空间域
+        f_ishift = np.fft.ifftshift(fshift)
+        img_back = np.fft.ifft2(f_ishift)
+        img_back = np.abs(img_back)  # 获取图像的绝对值作为最终结果
+        return img_back
+    #bm3d
+    def bm3d_filter(self,noisy_image):
+        # 使用BM3D去噪
+        denoised_image = bm3d(noisy_image, sigma_psd=25 / 255.0)  # sigma_psd 是噪声的标准差（归一化）
+        return denoised_image
+
+    def svd_denoising(self, noisy_image, k=5):
+        # SVD分解
+        U, S, Vt = np.linalg.svd(noisy_image, full_matrices=False)
+
+        # 仅保留前k个奇异值
+        S[k:] = 0
+
+        # 重建去噪矩阵
+        denoised_matrix = np.dot(U, np.dot(np.diag(S), Vt))
+        return denoised_matrix
+
+
+
+
+
 
 # autoencoder = autoencoder({"type":"linear", "path":"autoencoder"})
 # image2predict = np.load("noise3_image_scao_sh_10x10_16pix_2m_gs9_noise3_delay0.npy")

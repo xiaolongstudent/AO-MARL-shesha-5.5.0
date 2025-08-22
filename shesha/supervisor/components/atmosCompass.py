@@ -1,13 +1,13 @@
 ## @package   shesha.supervisor
 ## @brief     User layer for initialization and execution of a COMPASS simulation
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -37,7 +37,6 @@
 from shesha.init.atmos_init import atmos_init
 from shesha.constants import CONST
 import numpy as np
-from typing import List
 
 class AtmosCompass(object):
     """ Atmosphere handler for compass simulation
@@ -67,7 +66,7 @@ class AtmosCompass(object):
                         self._config.p_geom, self._config.p_loop.ittime, p_wfss=self._config.p_wfss,
                         p_targets=self._config.p_targets)
 
-    
+
     def enable_atmos(self, enable : bool) -> None:
         """ Set or unset whether atmos is enabled when running loop
 
@@ -94,7 +93,7 @@ class AtmosCompass(object):
             else:
                 ilayer = reset_seed
             for k in range(self._atmos.nscreens):
-                self._atmos.set_seed(k, 1234 + ilayer)
+                self._atmos.set_seed(k, self._config.p_atmos.seeds[ilayer])
                 self._atmos.refresh_screen(k)
                 ilayer += 1
         self._config.p_atmos.set_r0(r0)
@@ -114,7 +113,7 @@ class AtmosCompass(object):
             self._config.p_atmos.windspeed[screen_index] = windspeed
         if winddir is not None:
             self._config.p_atmos.winddir[screen_index] = winddir
-        
+
         lin_delta = self._config.p_geom.pupdiam / self._config.p_tel.diam * self._config.p_atmos.windspeed[screen_index] * \
                     np.cos(CONST.DEG2RAD * self._config.p_geom.zenithangle) * self._config.p_loop.ittime
         oldx = self._config.p_atmos._deltax[screen_index]
@@ -136,10 +135,11 @@ class AtmosCompass(object):
 
     def reset_turbu(self, seed) -> None:
         """ Reset the turbulence layers to their original state
-        Modified for RL changing seed
         """
         ilayer = 0
         for k in range(self._atmos.nscreens):
+            
+            # self._atmos.set_seed(k, self._config.p_atmos.seeds[ilayer])
             self._atmos.set_seed(k, seed + ilayer)
             self._atmos.refresh_screen(k)
             ilayer += 1
@@ -150,7 +150,7 @@ class AtmosCompass(object):
         Args:
             indx : (int) : Index of the turbulent layer to return
 
-        Return:
+        Returns:
             layer : (np.ndarray) : turbulent layer phase screen
         """
         return np.array(self._atmos.d_screens[indx].d_screen)

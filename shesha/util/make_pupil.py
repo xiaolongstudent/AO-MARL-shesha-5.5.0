@@ -1,13 +1,13 @@
 ## @package   shesha.util.make_pupil
 ## @brief     Pupil creation functions
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -50,7 +50,7 @@ EELT_data = os.environ.get('SHESHA_ROOT') + "/data/apertures/"
 def make_pupil(dim, pupd, tel, xc=-1, yc=-1, real=0, halfSpider=False):
     """Initialize the system pupil
 
-    :parameters:
+    Args:
 
         dim: (long) : = p_geom.pupdiam
 
@@ -75,7 +75,7 @@ def make_pupil(dim, pupd, tel, xc=-1, yc=-1, real=0, halfSpider=False):
                                      tel.pupangle, D=tel.diam, halfSpider=halfSpider,
                                      pitch=1.244683637214, nseg=33, inner_rad=4.1,
                                      outer_rad=15.4, R=95.7853, nominalD=40,
-                                     half_seg=0.75, refl=tel.referr)
+                                     half_seg=0.75, refl=tel.referr, nmissing=tel.nbrmissing)
     elif (tel.type_ap == ApertureType.KECK):
         seg_corner = 1.8
         kpitch = seg_corner / 2 * np.sqrt(3)
@@ -110,6 +110,10 @@ def make_pupil(dim, pupd, tel, xc=-1, yc=-1, real=0, halfSpider=False):
         tel.set_cobs(0.14)
         print("force_VLT_pup_cobs = %5.3f" % 0.14)
         return make_VLT(dim, pupd, tel)
+    elif tel.type_ap == ApertureType.VLT_NOOBS:
+        tel.set_cobs(0.)
+        print("Remove central obstruction to the VLT")
+        return make_VLT(dim, pupd, tel)
     elif tel.type_ap == ApertureType.GENERIC:
         return make_pupil_generic(dim, pupd, tel.t_spiders, tel.spiders_type, xc, yc,
                                   real, tel.cobs)
@@ -122,7 +126,7 @@ def make_pupil_generic(dim, pupd, t_spiders=0.01, spiders_type=SpiderType.SIX, x
     """
         Initialize the system pupil
 
-    :parameters:
+    Args:
 
         dim: (long) : linear size of ???
 
@@ -204,7 +208,7 @@ def make_VLT(dim, pupd, tel):
     """
         Initialize the VLT pupil
 
-    :parameters:
+    Args:
 
         dim: (long) : linear size of ???
 
@@ -213,7 +217,7 @@ def make_VLT(dim, pupd, tel):
         tel: (Param_tel) : Telescope structure
     """
 
-    if (tel.set_t_spiders == -1):
+    if (tel.t_spiders == -1):
         print("force t_spider =%5.3f" % (0.09 / 18.))
         tel.set_t_spiders(0.09 / 18.)
     angle = 50.5 * np.pi / 180.  # --> 50.5 degre *2 d'angle entre les spiders
@@ -225,7 +229,7 @@ def make_VLT(dim, pupd, tel):
 
     pup = ((R < 0.5) & (R > (tel.cobs / 2))).astype(np.float32)
 
-    if (tel.set_t_spiders == -1):
+    if (tel.t_spiders == -1):
         print('No spider')
     else:
         spiders_map = (
@@ -246,7 +250,7 @@ def make_EELT(dim, pupd, tel, N_seg=-1):
     """
         Initialize the EELT pupil
 
-    :parameters:
+    Args:
 
         dim: (long) : linear size of ???
 
@@ -368,7 +372,7 @@ def make_EELT(dim, pupd, tel, N_seg=-1):
 def make_phase_ab(dim, pupd, tel, pup=None, xc=-1, yc=-1, real=0, halfSpider=False):
     """Compute the EELT M1 phase aberration
 
-    :parameters:
+    Args:
 
         dim: (long) : linear size of ???
 
@@ -494,21 +498,18 @@ def make_phase_ab(dim, pupd, tel, pup=None, xc=-1, yc=-1, real=0, halfSpider=Fal
 
 
 """
-
- _____ _   _____   ____  ___ ____ ___
-| ____| | |_   _| |  _ \|_ _/ ___/ _ \
-|  _| | |   | |   | |_) || | |  | | | |
-| |___| |___| |   |  _ < | | |__| |_| |
-|_____|_____|_|   |_| \_\___\____\___/
-
-
+ooooooooooo ooooo    ooooooooooo      oooooooooo  ooooo  oooooooo8   ooooooo
+ 888    88   888     88  888  88       888    888  888 o888     88 o888   888o
+ 888ooo8     888         888           888oooo88   888 888         888     888
+ 888    oo   888      o  888           888  88o    888 888o     oo 888o   o888
+o888ooo8888 o888ooooo88 o888o         o888o  88o8 o888o 888oooo88    88ooo88
 """
 
 
 def generateEeltPupilMask(npt, dspider, i0, j0, pixscale, gap, rotdegree, D=40.0, cobs=0,
                           centerMark=0, halfSpider=False, pitch=1.244683637214, nseg=33,
                           inner_rad=4.1, outer_rad=15.4, R=95.7853, nominalD=40,
-                          half_seg=0.75, refl=None, rotSpiderDegree=None):
+                          half_seg=0.75, refl=None, rotSpiderDegree=None, nmissing=0):
     """
     Generates a boolean pupil mask of the binary EELT pupil
     on a map of size (npt, npt).
@@ -566,6 +567,7 @@ def generateEeltPupilMask(npt, dspider, i0, j0, pixscale, gap, rotdegree, D=40.0
     # From the data of hex mirrors, we build the pupil image using
     # boolean
     #pup = generateSegmentProperties(True, hx, hy, i0, j0, pixscale, gap, npt, D)
+    np.random.seed(42) #to ensure we have the same distribution for different simulations
     if (refl == 0):
         refl = True
     elif np.isscalar(refl):
@@ -574,17 +576,32 @@ def generateEeltPupilMask(npt, dspider, i0, j0, pixscale, gap, rotdegree, D=40.0
         refl = np.ones(hx.size) - referr
     elif type(refl) == list:
         if len(refl) == 3:
-            refpist = np.random.random(hx.size)
+            refpist = np.random.randn(hx.size)
             refpist = refpist * refl[0] / np.std(refpist)
-            reftip = np.random.random(hx.size)
+            reftip = np.random.randn(hx.size)
             reftip = reftip * refl[1] / np.std(reftip)
-            reftilt = np.random.random(hx.size)
+            reftilt = np.random.randn(hx.size)
             reftilt = reftilt * refl[2] / np.std(reftilt)
             refl = np.array([refpist, reftip, reftilt])
     else:
         raise ValueError(
                 "refl param must be None, scalar (reflectivity std error) or list of 3 elements (piston, tip and tilt std errors)"
         )
+
+    if (nmissing != 0):
+        np.random.seed(44)
+        ind_missing = np.random.randint(0, hx.size / 6, nmissing)
+        #ind_missing = np.arange(798)
+        print(ind_missing)
+        if np.isscalar(refl):
+            refl = np.ones(hx.size)
+            refl[ind_missing] = 0
+            #refl[ind_missing] = (ind_missing % 133 / (hx.size / 6)).astype(float)
+        elif (refl.shape[0] == 3): #piston tip tilt
+            print("WARNING: there are piston, tip and tilt std errors, missing segments will be ignored")
+        else: #there is already a 1D array containing reflectivity error
+            refl[ind_missing] = 0
+
 
     pup = generateSegmentProperties(refl, hx, hy, i0, j0, pixscale, gap, npt, D,
                                     nominalD=nominalD, pitch=pitch, half_seg=half_seg)
@@ -606,7 +623,7 @@ def generateEeltPupilMask(npt, dspider, i0, j0, pixscale, gap, rotdegree, D=40.0
         obstru = (util.dist(pup.shape[0], pup.shape[0] // 2 + 0.5,
                             pup.shape[0] // 2 + 0.5) >=
                   (pup.shape[0] * cobs + 1.) * 0.5).astype(np.float32)
-        pup *= obstru
+        pup = pup * obstru
     return pup
 
 
@@ -675,8 +692,8 @@ def fillPolygon(x, y, i0, j0, scale, gap, N, index=0):
     # Last triangle has a special treatment because it crosses the axis
     # with theta=0=2pi
     n = x.shape[0]  # number of corners of polygon
-    indx, indy = (np.array([], dtype=np.int), np.array([], dtype=np.int))
-    distedge = np.array([], dtype=np.float)
+    indx, indy = (np.array([], dtype=np.int64), np.array([], dtype=np.int64))
+    distedge = np.array([], dtype=np.float32)
     for i in range(n):
         j = i + 1  # j=element next i except when i==n : then j=0 (cycling)
         if j == n:
@@ -706,7 +723,7 @@ def fillPolygon(x, y, i0, j0, scale, gap, N, index=0):
         a[indx, indy] = distedge
         return a
     else:
-        a = np.zeros((N, N), dtype=np.bool)
+        a = np.zeros((N, N), dtype=bool)
         a[indx, indy] = True  # convention [x,y]
 
     return a
@@ -756,7 +773,7 @@ def compute1Spider(nspider, N, dspider, i0, j0, scale, rot):
     La fonction cree un tableau de booleens avec une seule spider.
     Utilisee par la fonction compute6Segments()
     """
-    a = np.ones((N, N), dtype=np.bool)
+    a = np.ones((N, N), dtype=bool)
     X = (np.arange(N) - i0) * scale
     Y = (np.arange(N) - j0) * scale
     X, Y = np.meshgrid(X, Y, indexing='ij')  # convention d'appel [x,y]
@@ -782,7 +799,7 @@ def fillSpider(N, nspider, dspider, i0, j0, scale, rot):
     :param float rot: rotation angle in radians
 
     """
-    a = np.ones((N, N), dtype=np.bool)
+    a = np.ones((N, N), dtype=bool)
     X = (np.arange(N) - i0) * scale
     Y = (np.arange(N) - j0) * scale
     X, Y = np.meshgrid(X, Y, indexing='ij')  # convention d'appel [x,y]
@@ -794,8 +811,8 @@ def fillSpider(N, nspider, dspider, i0, j0, scale, rot):
 
 
 def fillHalfSpider(N, nspider, dspider, i0, j0, scale, rot):
-    a = np.ones((N, N), dtype=np.bool)
-    b = np.ones((N, N), dtype=np.bool)
+    a = np.ones((N, N), dtype=bool)
+    b = np.ones((N, N), dtype=bool)
     X = (np.arange(N) - i0) * scale
     Y = (np.arange(N) - j0) * scale
     X, Y = np.meshgrid(X, Y, indexing='ij')  # convention d'appel [x,y]
@@ -843,16 +860,22 @@ def generateCoordSegments(D, rot, pitch=1.244683637214, nseg=33, inner_rad=4.1,
     segments of M1.
     Result is a tuple of arrays(6, 798).
 
-    Parameters
-    -----------------------------------------
-    D: (float) : pupil diameter in meters (it must be set to 40.0 m for the ELT)
-    rot: (float) : pupil rotation angle in radians
-    pitch: (float): Segment pitch [meters]
-    nseg: (int) : number of segments across the diameter
-    inner_rad : (float): Inner radius [meters]
-    outer_rad : (float): Outer radius [meters]
-    R : (float): Curvature radius of the M1
-    nominalD: (float): diameter for nominal pupil
+    Args:
+        D: (float) : pupil diameter in meters (it must be set to 40.0 m for the ELT)
+
+        rot: (float) : pupil rotation angle in radians
+
+        pitch: (float): Segment pitch [meters]
+
+        nseg: (int) : number of segments across the diameter
+
+        inner_rad : (float): Inner radius [meters]
+
+        outer_rad : (float): Outer radius [meters]
+
+        R : (float): Curvature radius of the M1
+
+        nominalD: (float): diameter for nominal pupil
 
     """
     V3 = np.sqrt(3)
@@ -918,11 +941,12 @@ def gendron():
 
     """
     mymsg = [
-            "\n\n\n\n", "__        ___    ____  _   _ ___ _   _  ___ _",
-            "\ \      / / \  |  _ \| \ | |_ _| \ | |/ ___|",
-            " \ \ /\ / / _ \ | |_) |  \| || ||  \| | |  _ ",
-            "  \ V  V / ___ \|  _ <| |\  || || |\  | |_| |",
-            "   \_/\_/_/   \_\_| \_\_| \_|___|_| \_|\____|", " \n",
+            "\n\n\n\n",
+            # "__        ___    ____  _   _ ___ _   _  ___ _",
+            # "\ \      / / \  |  _ \| \ | |_ _| \ | |/ ___|",
+            # " \ \ /\ / / _ \ | |_) |  \| || ||  \| | |  _ ",
+            # "  \ V  V / ___ \|  _ <| |\  || || |\  | |_| |",
+            # "   \_/\_/_/   \_\_| \_\_| \_|___|_| \_|\____|", " \n",
             "Vous utilisez un telescope de type ELT. Ce telescope",
             "est fait pour etre utilise avec un diametre de 40 m.", " ",
             "Or, vous utilisez un diametre different. Cela signifie",

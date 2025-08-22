@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="k8s@192.168.81.26:43842 password (18)" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="k8s@192.168.81.26:40771 password (6)" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
+    <option name="confirmBeforeUploading" value="false" />
     <serverData>
       <paths name="AO_MARL_MAIN">
         <serverdata>
@@ -9,52 +10,31 @@
           </mappings>
         </serverdata>
       </paths>
-      <paths name="k8s@192.168.81.26:40771 password (16)">
+      <paths name="k8s@192.168.81.26:31415 password (8)">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/pycharm_project_30" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="k8s@192.168.81.26:31415 password (9)">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/zhangyanna/project/AO_MAPL" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="k8s@192.168.81.26:40771 password (5)">
         <serverdata>
           <mappings>
             <mapping deploy="/zyn/project/AO_MARL" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>
-      <paths name="k8s@192.168.81.26:43842 password (10)">
+      <paths name="k8s@192.168.81.26:40771 password (6)">
         <serverdata>
           <mappings>
-            <mapping deploy="/zhangyanna/project/AO_MAPL" local="$PROJECT_DIR$" web="/" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="k8s@192.168.81.26:43842 password (12)">
-        <serverdata>
-          <mappings>
-            <mapping deploy="/tmp/pycharm_project_16" local="$PROJECT_DIR$" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="k8s@192.168.81.26:43842 password (13)">
-        <serverdata>
-          <mappings>
-            <mapping deploy="/zhangyanna/project/AO_MAPL" local="$PROJECT_DIR$" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="k8s@192.168.81.26:43842 password (16)">
-        <serverdata>
-          <mappings>
-            <mapping deploy="/tmp/pycharm_project_67" local="$PROJECT_DIR$" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="k8s@192.168.81.26:43842 password (17)">
-        <serverdata>
-          <mappings>
-            <mapping deploy="/zhangyanna/project/AO_MAPL" local="$PROJECT_DIR$" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="k8s@192.168.81.26:43842 password (18)">
-        <serverdata>
-          <mappings>
-            <mapping deploy="/zhangyanna/project/AO_MAPL" local="$PROJECT_DIR$" />
+            <mapping deploy="/zyn/project/AO_MARL" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>

@@ -1,13 +1,13 @@
 ## @package   shesha.util.kl_util
 ## @brief     Functions for DM KL initialization
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -45,7 +45,7 @@ from typing import Tuple
 def make_radii(cobs: float, nr: int) -> float:
     """ TODO: docstring
 
-        :parameters:
+        Args:
 
             cobs: (float) : central obstruction
 
@@ -68,7 +68,7 @@ def make_kernels(cobs: float, nr: int, radp: np.ndarray, kl_type: bytes,
 
     TODO:
 
-    :parameters:
+    Args:
 
         cobs : (float): central obstruction
 
@@ -117,7 +117,7 @@ def make_kernels(cobs: float, nr: int, radp: np.ndarray, kl_type: bytes,
 def piston_orth(nr: int) -> np.ndarray:
     """ TODO: docstring
 
-        :parameters:
+        Args:
 
             nr:
 
@@ -139,7 +139,7 @@ def piston_orth(nr: int) -> np.ndarray:
 def make_azimuth(nord: int, npp: int) -> np.ndarray:
     """ TODO: docstring
 
-        :parameters:
+        Args:
 
             nord:
 
@@ -173,7 +173,7 @@ def radii(nr: int, npp: int, cobs: float) -> np.ndarray:
 
     TODO:
 
-        :parameters:
+        Args:
 
             nr:
 
@@ -186,7 +186,7 @@ def radii(nr: int, npp: int, cobs: float) -> np.ndarray:
             r
     """
 
-    r2 = cobs**2 + (np.arange(nr, dtype=np.float) + 0.) / nr * (1.0 - cobs**2)
+    r2 = cobs**2 + (np.arange(nr, dtype=np.float32) + 0.) / nr * (1.0 - cobs**2)
     rs = np.sqrt(r2)
     r = np.transpose(np.tile(rs, (npp, 1)))
 
@@ -204,7 +204,7 @@ def polang(r: np.ndarray) -> np.ndarray:
 
     TODO:
 
-        :parameters:
+        Args:
 
             r:
 
@@ -215,7 +215,7 @@ def polang(r: np.ndarray) -> np.ndarray:
     s = r.shape
     nr = s[0]
     np1 = s[1]
-    phi1 = np.arange(np1, dtype=np.float) / float(np1) * 2. * np.pi
+    phi1 = np.arange(np1, dtype=np.float32) / float(np1) * 2. * np.pi
     p1, p2 = np.meshgrid(np.ones(nr), phi1)
     p = np.transpose(p2)
 
@@ -236,7 +236,7 @@ def setpincs(ax: np.ndarray, ay: np.ndarray, px: np.ndarray, py: np.ndarray,
 
     TODO:
 
-        :parameters:
+        Args:
 
             ax:
 
@@ -312,7 +312,7 @@ def pcgeom(nr, npp, cobs, ncp, ncmar):
 
     TODO:
 
-        :parameters:
+        Args:
 
             nr:
 
@@ -348,7 +348,7 @@ def pcgeom(nr, npp, cobs, ncp, ncmar):
     """
     nused = ncp - 2 * ncmar
     ff = 0.5 * nused
-    hw = np.float(ncp - 1) / 2.
+    hw = np.float32(ncp - 1) / 2.
 
     r = radii(nr, npp, cobs)
     p = polang(r)
@@ -358,7 +358,7 @@ def pcgeom(nr, npp, cobs, ncp, ncmar):
     px = ff * px0 + hw
     py = ff * py0 + hw
     ax = np.reshape(
-            np.arange(int(ncp)**2, dtype=np.float) + 1, (int(ncp), int(ncp)), order='F')
+            np.arange(int(ncp)**2, dtype=np.float32) + 1, (int(ncp), int(ncp)), order='F')
     ax = np.float32(ax - 1) % ncp - 0.5 * (ncp - 1)
     ax = ax / (0.5 * nused)
     ay = np.transpose(ax)
@@ -389,7 +389,7 @@ def set_pctr(dim: int, nr, npp, nkl: int, cobs: float, nord, ncmar=None, ncp=Non
     the gkl_bas routine.
     TODO:
 
-    :parameters:
+    Args:
 
         dim:
 
@@ -448,7 +448,7 @@ def gkl_fcom(kers: np.ndarray, cobs: float, nf: int):
     a bunch of indices used to recover the modes in cartesian
     coordinates (nord, npo and ordd).
 
-    :parameters:
+    Args:
 
         kerns : (np.ndarray[ndim= ,dtype=np.float32]) :
 

@@ -1,13 +1,13 @@
 ## @package   shesha.util.tools
 ## @brief     Imported from CANARY
 ## @author    COMPASS Team <https://github.com/ANR-COMPASS>
-## @version   5.0.0
-## @date      2020/05/18
+## @version   5.5.0
+## @date      2022/01/24
 ## @copyright GNU Lesser General Public License
 #
 #  This file is part of COMPASS <https://anr-compass.github.io/compass/>
 #
-#  Copyright (C) 2011-2019 COMPASS Team <https://github.com/ANR-COMPASS>
+#  Copyright (C) 2011-2023 COMPASS Team <https://github.com/ANR-COMPASS>
 #  All rights reserved.
 #  Distributed under GNU - LGPL
 #
@@ -113,7 +113,7 @@ def pli(data, color='gist_earth', cmin=9998, cmax=9998, win=1, origin=None,
         color = 'gist_earth'
     if (origin is None):
         origin = ""
-    if (aspect is not 'auto'):
+    if (aspect != 'auto'):
         aspect = "\'" + aspect + "\'"
     else:
         aspect = "\'auto\'"
@@ -254,7 +254,7 @@ def plsh(slopesvector,  nssp=14,  rmax=0.98, obs=0, win=1, invertxy=False):
 
 def plpyr(slopesvector, validArray):
     """
-    wao.config.p_wfs0._isvalid
+    wao.config.p_wfss[0]._isvalid
     """
     nslopes = slopesvector.shape[0] / 2
     x, y = np.where(validArray.T)
