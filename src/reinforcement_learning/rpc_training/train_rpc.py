@@ -1,15 +1,19 @@
-from src.reinforcement_learning.environment import ao_env
+import logging
 import os
-import numpy as np
-from src.reinforcement_learning.environment.delayed_mdp import DelayedMDP
 import time
+
+import numpy as np
+
+from src.reinforcement_learning.environment import ao_env
+from src.reinforcement_learning.environment.delayed_mdp import DelayedMDP
+from src.reinforcement_learning.rpc_training.algorithms_rpc.mat import MAT
 from src.reinforcement_learning.rpc_training.algorithms_rpc.replay_memory_rpc import \
             ReplayMemory
 from src.reinforcement_learning.rpc_training.helper_rpc.helper_pure_rpc import _call_method
-from torch.distributed.rpc import RRef, rpc_sync, rpc_async, remote
-import torch.distributed.rpc as rpc
 from src.reinforcement_learning.rpc_training.helper_rpc.helper_rewards import get_separated_rewards
 from src.reinforcement_learning.rpc_training.helper_rpc.helper_states import get_modes_chosen
+from torch.distributed.rpc import RRef, rpc_async, rpc_sync, remote
+import torch.distributed.rpc as rpc
 
 """
 1. worker_id: int
@@ -61,6 +65,10 @@ class TrainerRPC:
 
         # 0) a. RPC
 
+        self.savedir = os.path.abspath(config_rl.savedir)
+        os.makedirs(self.savedir, exist_ok=True)
+        config_rl.savedir = self.savedir
+
         self.n_filtered = config_rl.env_rl['n_reverse_filtered_from_cmat']
         self.ag_rrefs = []
         self.master_rref = RRef(self)
@@ -68,10 +76,10 @@ class TrainerRPC:
         self.num_gpus = num_gpus
         self.sr_list = []
         # self.save_dict = config_rl.env_rl['save_dict']
-
-        folder = "outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/output_models/models_rpc/" + experiment_name + "/"
-        if not os.path.exists(folder):
-            os.makedirs(folder)
+        self.model_root = os.path.join(self.savedir, "output_models", "models_rpc")
+        self.model_dir = os.path.join(self.model_root, experiment_name)
+        os.makedirs(self.model_dir, exist_ok=True)
+        self._sr_log_path = os.path.join(self.savedir, "sr_list.npy")
 
 
         # 1) Initializing AO env
@@ -101,9 +109,9 @@ class TrainerRPC:
                                              experiment_name,
                                              self.total_existing_modes, self.total_controlled_modes, self.starting_mode)
 
-        # 3) Loading SAC
+        # 3) Loading MAT
 
-        self.load_soft_actor_critic(config_rl)
+        self.load_mat(config_rl)
 
         # 4) Loading Replay Memory
 
@@ -111,7 +119,7 @@ class TrainerRPC:
         for worker_id in range(1, world_size):
             self.memorys_master[worker_id] = ReplayMemory(config_rl.env_rl['max_steps_per_episode'])
 
-        # 5) Load pretrained weights for SAC
+        # 5) Load pretrained weights for MAT
 
         if config_rl.sac['pretrained_model_path'] is not None:
 
@@ -145,6 +153,43 @@ class TrainerRPC:
 
         self.current_r0 = self.env.supervisor.config.p_atmos.r0
         self.current_windspeed_layer_0 = self.env.supervisor.config.p_atmos.windspeed[0]
+        # Track the per-agent residual energy seen in the previous step so we can
+        # shape rewards using the improvement between consecutive timesteps.  The
+        # value is reset every time the environment is reset.
+        self._previous_agent_errors = None
+        self._reward_baseline_errors = None
+        self._previous_strehl = None
+        self._last_safe_strehl = (0.0, 0.0, 0.0, 0.0)
+        self._strehl_warning_emitted = False
+        self._reward_warmup = True
+
+        # Reward shaping parameters used to stabilise training and align the
+        # optimisation target with Strehl improvements.
+        self.reward_improvement_weight = float(
+            self.config_rl.sac.get('reward_improvement_weight', 1.0)
+        )
+        self.reward_penalty_weight = float(
+            self.config_rl.sac.get('reward_penalty_weight', 0.0)
+        )
+        self.reward_strehl_weight = float(
+            self.config_rl.sac.get('reward_strehl_weight', 0.0)
+        )
+        reward_momentum = float(self.config_rl.sac.get('reward_momentum', 0.0))
+        self.reward_momentum = min(max(reward_momentum, 0.0), 0.999)
+        self.reward_clip = float(self.config_rl.sac.get('reward_clip', 0.0))
+        strehl_abs_weight = self.config_rl.sac.get('reward_strehl_absolute_weight', 0.0)
+        self.reward_strehl_absolute_weight = float(strehl_abs_weight)
+        self.reward_strehl_target = float(self.config_rl.sac.get('reward_strehl_target', 0.0))
+        self.reward_strehl_clip = float(self.config_rl.sac.get('reward_strehl_clip', 0.0))
+        self.reward_strehl_index = int(self.config_rl.sac.get('reward_strehl_index', 0))
+        relative_flag = self.config_rl.sac.get('reward_relative_improvement', True)
+        if isinstance(relative_flag, str):
+            relative_flag = relative_flag.lower() == 'true'
+        self.reward_relative_improvement = bool(relative_flag)
+        self.reward_relative_epsilon = float(
+            self.config_rl.sac.get('reward_relative_epsilon', 1e-6)
+        )
+        self._strehl_baseline = None
 
     def write_test_performances(self, rl_performance_dict, linear_performance_dict, geo_performance_dict):
         """
@@ -217,7 +262,7 @@ class TrainerRPC:
                                            linear_performance_dict['sr_se_test'],
                                            self.total_step)
         self.sr_list.append(rl_performance_dict['sr_se_test'])
-        np.save(f"outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/sr_list",self.sr_list)
+        np.save(self._sr_log_path, self.sr_list)
 
 
 
@@ -230,7 +275,7 @@ class TrainerRPC:
                 rpc_async(
                     ag_rreff.owner(),
                     _call_method,
-                    args=(SAC.save_model, ag_rreff,
+                    args=(MAT.save_model, ag_rreff,
                           self.experiment_name, self.num_episode, self.dictionary_agents[worker_id], worker_id),
                     timeout=12000
                 )
@@ -344,7 +389,7 @@ class TrainerRPC:
 
     def load_model_dict(self,config_rl):
         """
-        SAC 加载策略模型
+        MAT 加载策略模型
         """
         futs = []
         worker_id = 1
@@ -354,7 +399,7 @@ class TrainerRPC:
                 rpc_async(
                     ag_rreff.owner(),
                     _call_method,
-                    args=(SAC.load_policy, ag_rreff ,self.master_rref,worker_id),
+                    args=(MAT.load_policy, ag_rreff ,self.master_rref,worker_id),
                     timeout=12000
                 )
 
@@ -366,12 +411,10 @@ class TrainerRPC:
             
         
 
-    def load_soft_actor_critic(self, config_rl):
+    def load_mat(self, config_rl):
         """
-        Loads SAC given config_rl parameters
+        Loads MAT given config_rl parameters
         """
-        # We get state from the environment to calculate input to SAC
-
         for worker_id in range(1, self.world_size):
             agent_value = self.dictionary_agents[worker_id]
 
@@ -382,14 +425,16 @@ class TrainerRPC:
             action_shape = np.zeros([agent_value[1] - agent_value[0]])
 
             ag_info = rpc.get_worker_info("Agent{}".format(worker_id))
+            worker_model_dir = os.path.join(self.model_dir, f"worker_{worker_id}")
+            os.makedirs(worker_model_dir, exist_ok=True)
 
-            self.ag_rrefs.append(remote(ag_info, SAC,
+            self.ag_rrefs.append(remote(ag_info, MAT,
                                         kwargs={"num_inputs": state_shape,
                                                 "action_space": action_shape,
                                                 "config": config_rl,
                                                 "rank": worker_id,
-                                                "num_gpus": self.num_gpus
-                                                }))
+                                                "num_gpus": self.num_gpus,
+                                                "model_dir": worker_model_dir}))
 
     def prepare_indices_of_state(self):
         """
@@ -437,16 +482,179 @@ class TrainerRPC:
         :return: reward_list
         """
 
-        # Reward modes will come from residual commands, only RL can not use d_err, needs to use D m_t
-        #self.env.supervisor.rtc.get_err(0) 返回变形镜执行空间中所有误差因素的总和。
-        s_dm_residual_modes = self.env.supervisor.volts2modes.dot(self.env.supervisor.rtc.get_err(0))
-        reward = np.square(s_dm_residual_modes)
+        agent_errors = self._compute_agent_errors()
 
-        separated_reward = get_separated_rewards(reward,
-                                                 self.config_rl.env_rl['reward_type'],
-                                                 self.dictionary_agents)
+        factor = float(self.config_rl.env_rl['reward_type'].split("_")[-1])
 
-        return separated_reward
+        strehl_component = 0.0
+        strehl_active = (
+            self.reward_strehl_weight != 0.0
+            or self.reward_strehl_absolute_weight != 0.0
+        )
+        if strehl_active:
+            strehl = self._current_reward_strehl()
+            if self._strehl_baseline is None:
+                self._strehl_baseline = max(self.reward_strehl_target, strehl)
+            if self._reward_warmup or self._previous_strehl is None:
+                strehl_delta = 0.0
+            else:
+                strehl_delta = strehl - self._previous_strehl
+            self._previous_strehl = strehl
+            strehl_absolute = strehl - self._strehl_baseline
+            strehl_component = (
+                self.reward_strehl_weight * strehl_delta
+                + self.reward_strehl_absolute_weight * strehl_absolute
+            )
+            if self.reward_strehl_clip > 0.0:
+                strehl_component = float(np.clip(
+                    strehl_component,
+                    -self.reward_strehl_clip,
+                    self.reward_strehl_clip,
+                ))
+            agent_count = max(1, self.world_size - 1)
+            strehl_component /= agent_count
+        else:
+            self._previous_strehl = None
+            self._strehl_baseline = None
+
+        if self._reward_warmup:
+            previous_errors = self._reward_baseline_errors or {
+                worker_id: agent_errors[worker_id] for worker_id in agent_errors
+            }
+            had_previous = False
+        else:
+            previous_errors = self._previous_agent_errors
+            had_previous = previous_errors is not None
+            if not had_previous:
+                previous_errors = {
+                    worker_id: agent_errors[worker_id] for worker_id in agent_errors
+                }
+
+        if previous_errors is None:
+            previous_errors = {
+                worker_id: agent_errors[worker_id] for worker_id in agent_errors
+            }
+            had_previous = False
+
+        if self.reward_momentum > 0.0 and previous_errors:
+            beta = self.reward_momentum
+            current_smoothed = {
+                worker_id: beta * previous_errors.get(worker_id, agent_errors[worker_id])
+                + (1.0 - beta) * agent_errors[worker_id]
+                for worker_id in agent_errors
+            }
+        else:
+            current_smoothed = {worker_id: agent_errors[worker_id] for worker_id in agent_errors}
+
+        rewards = {}
+        clip_value = self.reward_clip if self.reward_clip > 0.0 else None
+
+        for worker_id, current_value in current_smoothed.items():
+            previous_value = previous_errors.get(worker_id, current_value)
+            if had_previous:
+                improvement = previous_value - current_value
+            else:
+                improvement = 0.0
+
+            if self.reward_relative_improvement:
+                denom = max(abs(previous_value), self.reward_relative_epsilon)
+                improvement_scaled = improvement / denom
+                penalty_scaled = current_value / denom
+            else:
+                improvement_scaled = improvement
+                penalty_scaled = current_value
+
+            combined = (
+                self.reward_improvement_weight * improvement_scaled
+                - self.reward_penalty_weight * penalty_scaled
+            )
+
+            reward = factor * combined + strehl_component
+            if clip_value is not None:
+                reward = float(np.clip(reward, -clip_value, clip_value))
+            rewards[worker_id] = reward
+
+        self._previous_agent_errors = dict(current_smoothed)
+        self._reward_warmup = False
+
+        return rewards
+
+    def _compute_agent_errors(self):
+        """Return the average squared residual per agent at the current step."""
+
+        s_dm_residual_modes = self.env.supervisor.volts2modes.dot(
+            self.env.supervisor.rtc.get_err(0)
+        )
+        residual_energy = np.square(np.nan_to_num(s_dm_residual_modes, nan=0.0))
+
+        agent_errors = {}
+        for worker_id, agent_value in self.dictionary_agents.items():
+            start, end = agent_value
+            # Guard against empty slices when the configuration filters out
+            # certain modes (e.g. turbulence tip-tilt removal).
+            if end <= start:
+                agent_errors[worker_id] = 0.0
+                continue
+            agent_errors[worker_id] = float(
+                np.mean(residual_energy[start:end])
+            )
+
+        return agent_errors
+
+    def _safe_get_strehl(self, tar_index=0):
+        """Return Strehl metrics while shielding against estimator failures.
+
+        Compass occasionally fails to fit the PSF and raises a low-level
+        exception that bubbles up as soon as we query ``get_strehl``.  That
+        failure manifested as noisy "can not estimate the SR" messages after
+        every episode once we started querying the Strehl ratio for reward
+        shaping.  To keep the training loop robust we try to read the Strehl
+        without fitting the PSF; if the backend still raises, we fall back to
+        the last valid reading and warn just once.
+        """
+
+        try:
+            values = self.env.supervisor.target.get_strehl(tar_index, do_fit=False)
+        except Exception as exc:  # pragma: no cover - backend specific
+            if not self._strehl_warning_emitted:
+                logging.warning(
+                    "Failed to estimate Strehl for target %s: %s", tar_index, exc
+                )
+                self._strehl_warning_emitted = True
+            values = self._last_safe_strehl
+        else:
+            values = tuple(float(np.nan_to_num(val, nan=0.0)) for val in values)
+            self._last_safe_strehl = values
+            self._strehl_warning_emitted = False
+
+        return values
+
+    def _current_reward_strehl(self):
+        values = self._safe_get_strehl()
+        if not values:
+            return 0.0
+        index = max(0, min(self.reward_strehl_index, len(values) - 1))
+        return float(values[index])
+
+    def _reset_reward_tracking(self):
+        """Initialise the reward shaping baseline after environment resets."""
+
+        baseline_errors = self._compute_agent_errors()
+        self._reward_baseline_errors = {
+            worker_id: float(value) for worker_id, value in baseline_errors.items()
+        }
+        self._previous_agent_errors = None
+        self._reward_warmup = True
+        if (
+            self.reward_strehl_weight != 0.0
+            or self.reward_strehl_absolute_weight != 0.0
+        ):
+            strehl = self._current_reward_strehl()
+            self._strehl_baseline = max(self.reward_strehl_target, strehl)
+            self._previous_strehl = strehl if self.reward_strehl_weight != 0.0 else None
+        else:
+            self._strehl_baseline = None
+            self._previous_strehl = None
 
     def divide_states_for_agents(self, state):
         """
@@ -495,10 +703,17 @@ class TrainerRPC:
             r_total = self.episode()
 
             if self.num_episode % 10 == 0:
-                self.writer_performance.add_scalar("Training_Reward/Evolution of SR LE",
-                                                    self.env.supervisor.target.get_strehl(0)[1], self.num_episode)
-                self.writer_performance.add_scalar("Training_Reward/Average Reward of last 10 episodes", r_total,
-                                                    self.num_episode)
+                sr_values = self._safe_get_strehl()
+                self.writer_performance.add_scalar(
+                    "Training_Reward/Evolution of SR LE",
+                    sr_values[1],
+                    self.num_episode,
+                )
+                self.writer_performance.add_scalar(
+                    "Training_Reward/Average Reward of last 10 episodes",
+                    r_total,
+                    self.num_episode,
+                )
 
             if (self.config_rl.env_rl['change_atmospheric_3_layers_1'] or
                 self.config_rl.env_rl['change_atmospheric_3_layers_2'] or
@@ -544,6 +759,10 @@ class TrainerRPC:
 
         step, r_total, done, s, start_time = 0, 0, False, self.env.reset(), time.time()
 
+        # Reset the reward baseline so the first step in the episode is
+        # measured relative to the initial residual energy.
+        self._reset_reward_tracking()
+
         self.delayed_mdp_object = DelayedMDP(self.config_rl.env_rl['delayed_assignment'],
                                              self.config_rl.env_rl['modification_online'])
 
@@ -579,10 +798,19 @@ class TrainerRPC:
 
         self.update_all_agents()
 
+        sr_values = self._safe_get_strehl()
         print('Episode: {} \tTotal steps: {} \tEpisode steps: {} \tNum updates: {}'
               ' \tSeed: {} \tCurrent Reward: {:.4f} \tSR SE: {:.4f} \tTime {:.4f}'
-              .format(self.num_episode, self.total_step, step, self.total_update, self.seed,
-                      r_total, self.env.supervisor.target.get_strehl(0)[0], time.time()-start_time))
+              .format(
+                  self.num_episode,
+                  self.total_step,
+                  step,
+                  self.total_update,
+                  self.seed,
+                  r_total,
+                  sr_values[0],
+                  time.time() - start_time,
+              ))
 
         self.num_episode += 1
 
@@ -597,6 +825,10 @@ class TrainerRPC:
         geometric_modes = np.zeros((self.config_rl.env_rl['max_steps_per_episode'],
                                     self.env.supervisor.volts2modes.shape[0]))
         r_per_agent_test, r_total_test, done, s = np.zeros(len(self.dictionary_agents)), 0, False, self.env.reset()
+
+        # Align the test run reward baseline with the freshly reset
+        # environment to ensure comparable metrics across controllers.
+        self._reset_reward_tracking()
 
         sr_se_test_list = []
         sr_sl_test_list = []
@@ -622,10 +854,9 @@ class TrainerRPC:
             # Agent metrics
             r_total_test += np.sum(list(reward_divided.values()))
             r_per_agent_test += np.array(list(reward_divided.values()))
-            sr_se_test = self.env.supervisor.target.get_strehl(0)[0]
-            sr_sl_test = self.env.supervisor.target.get_strehl(0)[1]
-            sr_se_test_list.append(sr_se_test)
-            sr_sl_test_list.append(sr_sl_test)
+            sr_values = self._safe_get_strehl()
+            sr_se_test_list.append(sr_values[0])
+            sr_sl_test_list.append(sr_values[1])
 
             # Geometric save commands
             if len(self.env.supervisor.config.p_controllers) > 1:
@@ -635,7 +866,7 @@ class TrainerRPC:
             # 3. s = s_next
             s = s_next.copy()
 
-        sr_le_test = self.env.supervisor.target.get_strehl(0)[1]
+        sr_le_test = self._safe_get_strehl()[1]
         sr_se_test = np.average(sr_se_test_list)
         print('Test episode: {} \tSeed: {} \tCurrent Reward: {:.4f} \tSR LE: {:.4f} \tAvg SR SE: {:.4f}'
               .format(self.num_test_episode, self.seed, r_total_test, sr_le_test, sr_se_test))
@@ -653,7 +884,7 @@ class TrainerRPC:
             # Geometric metrics, geometric index is 1
             r_geo_per_agent_test = self.divide_rewards_for_agents_geometric(geometric_modes=geometric_modes)
             r_geo_total_test = np.sum(r_geo_per_agent_test)
-            sr_le_geo_test = self.env.supervisor.target.get_strehl(1)[1]
+            sr_le_geo_test = self._safe_get_strehl(tar_index=1)[1]
 
             geometric_performance = {"r_geo_per_agent_test": r_geo_per_agent_test,
                                      "r_geo_total_test": r_geo_total_test,
@@ -722,20 +953,121 @@ class TrainerRPC:
         self.current_mu[bottom_mode_for_array:top_mode_for_array] = mu
         self.current_action_divided[worker_id] = a
 
-    def report_metrics(self, worker_id,
-                       qf1_loss_list, qf2_loss_list, alpha_loss_list, alpha_tlogs_list, policy_loss_list):
+    def report_metrics(self, worker_id, *metric_args, **metric_kwargs):
+        """Record training metrics reported by a worker.
 
-        total_step_qf1, qf1_loss_value = qf1_loss_list
-        total_step_qf2, qf2_loss_value = qf2_loss_list
-        total_step_alpha, alpha_loss_value = alpha_loss_list
-        total_step_alpha_tlogs, alpha_tlogs_value = alpha_tlogs_list
-        total_step_policy, policy_loss_value = policy_loss_list
+        Historical SAC workers reported five positional metrics in a fixed
+        order, whereas newer agents such as MAT prefer descriptive keyword
+        arguments (or even pass a single dictionary).  The previous
+        implementation attempted to cover both cases by declaring optional
+        parameters with ``None`` defaults.  However, RPC calls coming from
+        legacy workers still triggered ``TypeError`` exceptions because the
+        remote site resolved the signature before the module reload, keeping
+        the stricter positional contract.  To shield the trainer from such
+        version skew we now accept an arbitrary combination of positional
+        arguments and keyword payloads and normalise them at runtime.
+        """
 
-        self.writer_metrics_1.add_scalar("qf1_loss/" + str(worker_id), qf1_loss_value, total_step_qf1)
-        self.writer_metrics_1.add_scalar("qf2_loss/" + str(worker_id), qf2_loss_value, total_step_qf2)
-        self.writer_metrics_1.add_scalar("alpha_loss/" + str(worker_id), alpha_loss_value, total_step_alpha)
-        self.writer_metrics_1.add_scalar("alpha_tlogs/" + str(worker_id), alpha_tlogs_value, total_step_alpha_tlogs)
-        self.writer_metrics_1.add_scalar("policy_loss/" + str(worker_id), policy_loss_value, total_step_policy)
+        alias_map = {
+            "qf1_loss_list": "qf1_loss_list",
+            "qf1_loss": "qf1_loss_list",
+            "qf2_loss_list": "qf2_loss_list",
+            "qf2_loss": "qf2_loss_list",
+            "alpha_loss_list": "alpha_loss_list",
+            "alpha_loss": "alpha_loss_list",
+            "alpha_tlogs_list": "alpha_tlogs_list",
+            "alpha_tlogs": "alpha_tlogs_list",
+            "policy_loss_list": "policy_loss_list",
+            "policy_loss": "policy_loss_list",
+            "value_loss_list": "value_loss_list",
+            "value_loss": "value_loss_list",
+            "critic_loss_list": "value_loss_list",
+            "entropy_list": "entropy_list",
+            "entropy": "entropy_list",
+            "entropy_loss_list": "entropy_list",
+        }
+
+        canonical_keys = set(alias_map.values())
+        metrics = {key: None for key in canonical_keys}
+
+        def _assign_if_missing(name, value):
+            if value is None:
+                return
+            canonical = alias_map.get(name, name)
+            if isinstance(value, dict):
+                for sub_key, sub_val in value.items():
+                    _assign_if_missing(sub_key, sub_val)
+                return
+            if canonical is None:
+                return
+            if canonical not in metrics:
+                metrics[canonical] = value
+            elif metrics[canonical] is None:
+                metrics[canonical] = value
+
+        legacy_keys = [
+            "qf1_loss_list",
+            "qf2_loss_list",
+            "alpha_loss_list",
+            "alpha_tlogs_list",
+            "policy_loss_list",
+        ]
+        optional_legacy_keys = [
+            "value_loss_list",
+            "entropy_list",
+        ]
+        mat_keys = [
+            "policy_loss_list",
+            "value_loss_list",
+            "entropy_list",
+        ]
+
+        positional_args = []
+        for value in metric_args:
+            if isinstance(value, dict):
+                _assign_if_missing(None, value)
+            else:
+                positional_args.append(value)
+
+        if positional_args:
+            if len(positional_args) >= len(legacy_keys):
+                for key, value in zip(legacy_keys, positional_args):
+                    _assign_if_missing(key, value)
+
+                remaining = positional_args[len(legacy_keys):]
+                for key, value in zip(optional_legacy_keys, remaining):
+                    _assign_if_missing(key, value)
+            elif len(positional_args) == len(mat_keys):
+                for key, value in zip(mat_keys, positional_args):
+                    _assign_if_missing(key, value)
+            else:
+                for key, value in zip(legacy_keys, positional_args):
+                    _assign_if_missing(key, value)
+
+        for key, value in metric_kwargs.items():
+            _assign_if_missing(key, value)
+
+        def _log(tag, entry):
+            if entry is None:
+                return
+            try:
+                total_step, val = entry
+            except (TypeError, ValueError):
+                return
+            if total_step is None or val is None:
+                return
+            self.writer_metrics_1.add_scalar(f"{tag}/{worker_id}", val, total_step)
+
+        for tag, key in (
+            ("qf1_loss", "qf1_loss_list"),
+            ("qf2_loss", "qf2_loss_list"),
+            ("alpha_loss", "alpha_loss_list"),
+            ("alpha_tlogs", "alpha_tlogs_list"),
+            ("policy_loss", "policy_loss_list"),
+            ("value_loss", "value_loss_list"),
+            ("entropy", "entropy_list"),
+        ):
+            _log(tag, metrics.get(key))
 
     def write_update_losses_for_each_agent(self):
         """
@@ -744,17 +1076,20 @@ class TrainerRPC:
         futs = []
         for ag_rreff in self.ag_rrefs:
             futs.append(
-                rpc_sync(
+                rpc_async(
                     ag_rreff.owner(),
                     _call_method,
-                    args=(SAC.master_ask_metrics, ag_rreff, self.master_rref),
-                    timeout=12000
+                    args=(MAT.master_ask_metrics, ag_rreff, self.master_rref),
+                    timeout=12000,
                 )
             )
 
+        for fut in futs:
+            fut.wait()
+
     def choose_action(self, s, eval_mode=False):
         """
-        Chooses SAC action
+        Chooses MAT action
         Based on some config parameters the behaviour changes
         """
 
@@ -770,7 +1105,7 @@ class TrainerRPC:
                 rpc_async(
                     ag_rreff.owner(),
                     _call_method,
-                    args=(SAC.master_ask_action, ag_rreff, self.master_rref, s[worker_id], worker_id, eval_mode),
+                    args=(MAT.master_ask_action, ag_rreff, self.master_rref, s[worker_id], worker_id, eval_mode),
                     timeout=12000
                 )
             )
@@ -804,6 +1139,12 @@ class TrainerRPC:
             reward = reward_divided[worker_id]
             mask = float(not done)
 
+            state = np.nan_to_num(state, nan=0.0, posinf=1e6, neginf=-1e6)
+            action = np.nan_to_num(action, nan=0.0, posinf=1.0, neginf=-1.0)
+            state_next = np.nan_to_num(state_next, nan=0.0, posinf=1e6, neginf=-1e6)
+            reward = float(np.nan_to_num(reward, nan=0.0, posinf=1e6, neginf=-1e6))
+            action = np.clip(action, -0.999, 0.999)
+
             self.memorys_master[worker_id].push(state, action, reward, state_next, mask)
 
     def update_all_agents(self):
@@ -815,7 +1156,7 @@ class TrainerRPC:
                 rpc_async(
                     ag_rreff.owner(),
                     _call_method,
-                    args=(SAC.update_parameters_sac,
+                    args=(MAT.update_parameters,
                           ag_rreff,
                           self.memorys_master[worker_id],
                           self.config_rl.sac['batch_size'],
@@ -833,475 +1174,3 @@ class TrainerRPC:
             self.memorys_master[worker_id].reset()
 
 
-import torch
-import torch.nn.functional as F
-from torch.optim import Adam ,AdamW
-from src.reinforcement_learning.rpc_training.algorithms_rpc.utils import soft_update, hard_update
-from src.reinforcement_learning.rpc_training.algorithms_rpc.model_rpc import GaussianPolicy, QNetwork, Kan_QNetwork,KANGaussianPolicy
-from src.reinforcement_learning.rpc_training.helper_rpc.helper_pure_rpc import _remote_method
-
-
-class SAC(object):
-    def __init__(self,
-                 num_inputs,
-                 action_space,
-                 config,
-                 rank,
-                 num_gpus):
-        self.action_space = action_space.shape[0]
-        self.state_space = num_inputs
-
-        self.rpc_id = rpc.get_worker_info().id
-        if num_gpus <= 0:
-            device = "cpu"
-            self.device = torch.device(device)
-        else:
-            device = (self.rpc_id - 1) % num_gpus
-            self.device = torch.device("cuda:" + str(device) if torch.cuda.is_available() else "cpu")
-
-        self.worker_id = rank
-        print("0. Worker id {} Rpc id {} Device {}".format(self.worker_id, self.rpc_id, device))
-        self.write_update_statistics_every_updates = 50000  # 50000 updates approx 50 episodes
-        self.config = config
-
-        self.sac_writing_critic = 0
-
-        self.gamma = config.sac['gamma']
-        self.tau = config.sac['tau']
-        self.alpha = config.sac['alpha']
-
-        self.policy_type = config.sac['policy']
-        self.target_update_interval = config.sac['target_update_interval']
-        self.automatic_entropy_tuning = config.sac['automatic_entropy_tuning']
-
-        self.initialize_last_layer_zero = config.sac['initialize_last_layer_0']
-        self.initialize_last_layer_near_zero = config.sac['initialize_last_layer_near_0']
-        self.initialize_last_layer_init_kan = config.sac['initialize_last_layer_init_kan']
-
-
-
-        self.lr = config.sac['lr']
-        hidden_size_critic = config.sac['hidden_size_critic']
-        num_layers_critic = config.sac['num_layers_critic']
-        hidden_size_actor = config.sac['hidden_size_actor']
-        num_layers_actor = config.sac['num_layers_actor']
-
-        self.total_update = 0
-
-        self.critic, self.critic_target, self.critic_optim = \
-            self.initialise_critic(num_inputs=num_inputs,
-                                   action_space=action_space,
-                                   hidden_size_critic=hidden_size_critic,
-                                   num_layers_critic=num_layers_critic)
-
-        self.policy, self.policy_optim = self.initialise_policy(num_inputs=num_inputs,
-                                                                action_space=action_space,
-                                                                hidden_size_actor=hidden_size_actor,
-                                                                num_layers_actor=num_layers_actor)
-
-        self.log_alpha, self.alpha_optim, self.target_entropy = self.initialise_alpha(action_space)
-
-        self.memory = ReplayMemory(config.sac['memory_size'])
-
-        self.qf1_loss_list = None
-        self.qf2_loss_list = None
-        self.alpha_loss_value_list = None
-        self.alpha_tlogs_value_list = None
-        self.policy_loss_value_list = None
-
-    def initialise_alpha(self, action_space):
-        print("3. Initialasing SAC Alpha")
-        # Target Entropy = −dim(A) (e.g. , -6 for HalfCheetah-v2) as given in the paper
-        target_entropy = None
-        log_alpha = None
-        alpha_optim = None
-
-        if self.automatic_entropy_tuning is True:
-            # TODO Changed from .Tensor to .tensor
-            target_entropy = -torch.prod(torch.tensor(action_space.shape).to(self.device)).item()
-            log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
-            alpha_optim = Adam([log_alpha], lr=self.lr)
-            # alpha_optim = torch.optim.LBFGS([log_alpha], lr=self.lr,max_iter=10,tolerance_change = 1e-10,history_size=20)
-
-
-        elif self.policy_type == "Deterministic":
-            self.alpha = 0
-            self.automatic_entropy_tuning = False
-
-        return log_alpha, alpha_optim, target_entropy
-
-    def initialise_critic(self, num_inputs, action_space, hidden_size_critic, num_layers_critic):
-
-        print("1. Initialasing SAC Critic")
-
-        critic = QNetwork(num_inputs, action_space.shape[0], hidden_size_critic, num_layers_critic).to(self.device)
-        critic_target = QNetwork(num_inputs, action_space.shape[0], hidden_size_critic, num_layers_critic).to(
-            self.device)
-        critic_optim = Adam(critic.parameters(), lr=self.lr)
-        # critic_optim = torch.optim.LBFGS(critic.parameters(), lr=self.lr,max_iter=10,tolerance_change = 1e-10,history_size=20)
-
-        hard_update(critic_target, critic)
-
-        return critic, critic_target, critic_optim
-
-    def initialise_policy(self,
-                          num_inputs,
-                          action_space,
-                          hidden_size_actor,
-                          num_layers_actor
-                          ):
-
-        print("2. Initialising Policy; Type:", self.policy_type)
-
-        if self.policy_type == "Gaussian":
-            policy = GaussianPolicy(num_inputs=num_inputs,
-                                    num_actions=action_space.shape[0],
-                                    hidden_dim=hidden_size_actor,
-                                    action_scale=self.config.sac['gaussian_std'],
-                                    action_bias=self.config.sac['gaussian_mu'],
-                                    num_layers=num_layers_actor,
-                                    initialize_last_layer_zero=self.initialize_last_layer_zero,
-                                    initialize_last_layer_near_zero=self.initialize_last_layer_near_zero,
-                                    activation=self.config.sac['activation'],
-                                    LOG_SIG_MAX=self.config.sac['LOG_SIG_MAX']).to(self.device)
-            policy_optim_decay = self.config.sac['l2_norm_policy'] if self.config.sac['l2_norm_policy'] > 0 else 0
-            policy_optim = Adam(policy.parameters(), lr=self.lr, weight_decay=policy_optim_decay)
-            # policy_optim = torch.optim.LBFGS(policy.parameters(), lr=self.lr,max_iter=10,tolerance_change = 1e-10,history_size=20)
-        else:
-            raise NotImplementedError
-
-        return policy, policy_optim
-
-    def reset_optimizers(self):
-        self.policy_optim = Adam(self.policy.parameters(), lr=self.lr)
-        self.critic_optim = Adam(self.critic.parameters(), lr=self.lr)
-
-        self.memory.reset()
-
-    ###################################################################################################################
-    ###################################################################################################################
-    ###################################################################################################################
-    # noinspection PyArgumentList
-    def load_policy(self, master_rref , worker_id):
-        assert self.worker_id == worker_id
-        # policy_model_path = f"outputgain_0.4_noice3_worker4_1/output_models/models_rpc/training/trainingexperiment_name_worker_{worker_id}_sac_actor_training_episode_950"
-        # output_delay2_work1_hiden256
-        policy_model_path = f"outputgain_0.4_noice3_worker4_1/output_models/models_rpc/training/trainingexperiment_name_worker_{worker_id}_sac_actor_training_episode_500"
-
-        model_dict = torch.load(policy_model_path)
-        model_state_dict = model_dict["model_state_dict"]
-        self.policy.load_state_dict(model_state_dict)
-
-    def select_action(self,
-                      state,
-                      eval_mode=False,
-                      only_choosing_action=False):
-
-        state = torch.FloatTensor(state).to(self.device).unsqueeze(0)
-
-        action, _, mean = self.policy.sample(state,
-                                             only_choosing_action=only_choosing_action)
-
-        mean_to_return = mean.detach().cpu().numpy()[0]
-        if eval_mode is False:
-            action_to_return = action.detach().cpu().numpy()[0]
-        else:
-            action_to_return = mean_to_return
-
-        return action_to_return, mean_to_return
-
-    def master_ask_action(self, master_rref, state, worker_id, eval_mode):
-        """
-        When master asks for an action
-        """
-        assert self.worker_id == worker_id
-        with torch.no_grad():
-            a, mu = self.select_action(state=state,
-                                       eval_mode=eval_mode,
-                                       only_choosing_action=True)
-
-        _remote_method(TrainerRPC.report_action, master_rref, a, mu, self.worker_id)
-
-    def master_ask_metrics(self, master_rref):
-        _remote_method(TrainerRPC.report_metrics, master_rref, self.worker_id,
-                       self.qf1_loss_list,
-                       self.qf2_loss_list,
-                       self.alpha_loss_value_list,
-                       self.alpha_tlogs_value_list,
-                       self.policy_loss_value_list)
-    ###################################################################################################################
-    ###################################################################################################################
-    ###################################################################################################################
-
-    # --SAC UPDATE--
-
-    # This is done to remove warning of torch.FloatTensor()
-    # noinspection PyArgumentList
-    def get_tensors_from_memory(self, memory, batch_size):
-
-        state_batch, action_batch, reward_batch, next_state_batch, mask_batch = \
-            memory.sample(batch_size=batch_size)
-
-        state_batch = torch.FloatTensor(state_batch).to(self.device)
-        next_state_batch = torch.FloatTensor(next_state_batch).to(self.device)
-        action_batch = torch.FloatTensor(action_batch).to(self.device)
-        reward_batch = torch.FloatTensor(reward_batch).to(self.device).unsqueeze(1)
-        mask_batch = torch.FloatTensor(mask_batch).to(self.device).unsqueeze(1)
-
-        return state_batch, action_batch, reward_batch, next_state_batch, mask_batch
-
-    ###################################################################################################################
-    ###################################################################################################################
-    ###################################################################################################################
-
-    def get_bellman_backup(self,
-                           reward_batch,
-                           next_state_batch,
-                           mask_batch
-                           ):
-        with torch.no_grad():
-
-            next_state_action, next_state_log_pi, _ = self.policy.sample(next_state_batch)
-
-            qf1_next_target, qf2_next_target = self.critic_target(next_state_batch, next_state_action)
-            min_qf_next_target = torch.min(qf1_next_target,
-                                           qf2_next_target) - self.alpha * next_state_log_pi
-
-            next_q_value = reward_batch + mask_batch * self.gamma * min_qf_next_target
-
-        return next_q_value
-
-    @staticmethod
-    def calculate_q_loss(qf1, qf2, next_q_value):
-
-        # JQ = 𝔼(st,at)~D[0.5(Q1(st,at) - r(st,at) - γ(𝔼st+1~p[V(st+1)]))^2]
-        qf1_loss = F.mse_loss(qf1, next_q_value)
-        # JQ = 𝔼(st,at)~D[0.5(Q1(st,at) - r(st,at) - γ(𝔼st+1~p[V(st+1)]))^2]
-        qf2_loss = F.mse_loss(qf2, next_q_value)
-
-        qf_loss = qf1_loss + qf2_loss
-
-        return qf_loss, qf1_loss, qf2_loss
-
-    def update_critic(self, state_batch,
-                      action_batch,
-                      reward_batch,
-                      next_state_batch,
-                      mask_batch):
-
-        next_q_value = self.get_bellman_backup(reward_batch,
-                                               next_state_batch,
-                                               mask_batch
-                                               )
-        if isinstance(self.policy_optim, torch.optim.LBFGS):
-            qf2_loss = torch.tensor([0]).to(self.device)
-            qf1_loss = torch.tensor([0]).to(self.device)
-
-            # qf1 =  torch.tensor([0]).to(self.device)
-            # qf1 =  torch.tensor([0]).to(self.device)
-
-            def closure():
-                self.critic_optim.zero_grad()
-
-                # Two Q-functions to mitigate positive bias in the policy improvement step
-                qf1, qf2 = self.critic(state_batch, action_batch)
-                qf_loss, qf1_loss, qf2_loss = self.calculate_q_loss(qf1,
-                                                                    qf2,
-                                                                    next_q_value)
-
-                qf_loss.backward(retain_graph=True)
-                return qf_loss
-
-            qf_loss = self.critic_optim.step(closure)
-            return qf1_loss.detach().item(), qf2_loss.detach().item()
-
-        else:
-            self.critic_optim.zero_grad()
-
-            # Two Q-functions to mitigate positive bias in the policy improvement step
-            qf1, qf2 = self.critic(state_batch, action_batch)
-            qf_loss, qf1_loss, qf2_loss = self.calculate_q_loss(qf1,
-                                                                qf2,
-                                                                next_q_value)
-
-            qf_loss.backward()
-            self.critic_optim.step()
-            return qf1_loss.detach().item(), qf2_loss.detach().item()
-
-        # Two Q-functions to mitigate positive bias in the policy improvement step
-        # qf1, qf2 = self.critic(state_batch, action_batch)
-        #
-        # qf_loss, qf1_loss, qf2_loss = self.calculate_q_loss(qf1,
-        #                                                     qf2,
-        #                                                     next_q_value)
-        #
-        # self.critic_optim.zero_grad()
-        # qf_loss.backward()
-        # self.critic_optim.step()
-
-
-        # return qf1_loss.detach().item(), qf2_loss.detach().item()
-
-    ###################################################################################################################
-    ###################################################################################################################
-    ###################################################################################################################
-
-    def calculate_policy_loss(self, log_pi, min_qf_pi):
-
-        policy_loss = ((self.alpha * log_pi) - min_qf_pi).mean()
-        # Jπ = 𝔼st∼D,εt∼N[α * logπ(f(εt;st)|st) − Q(st,f(εt;st))]
-
-        return policy_loss
-
-    def update_actor(self, state_batch):
-        if isinstance(self.policy_optim, torch.optim.LBFGS):
-            log_pi = torch.tensor(0.2).to(self.device)
-
-            # pi = torch.tensor(0.5).to(self.device)
-            # qf1_pi = torch.tensor([0.5]).to(self.device)
-            # qf2_pi = torch.tensor([0.5]).to(self.device)
-            # min_qf_pi = torch.tensor([0.5]).to(self.device)
-            # policy_loss = torch.tensor([0.5]).to(self.device)
-
-            def closure():
-                self.policy_optim.zero_grad()
-                pi, log_pi, _ = self.policy.sample(state_batch)
-                qf1_pi, qf2_pi = self.critic(state_batch, pi)
-                min_qf_pi = torch.min(qf1_pi, qf2_pi)
-                policy_loss = self.calculate_policy_loss(log_pi, min_qf_pi)
-                policy_loss.backward(retain_graph=True)
-                return policy_loss
-
-            policy_loss = self.policy_optim.step(closure)
-        else:
-            pi, log_pi, _ = self.policy.sample(state_batch)
-            qf1_pi, qf2_pi = self.critic(state_batch, pi)
-            min_qf_pi = torch.min(qf1_pi, qf2_pi)
-            policy_loss = self.calculate_policy_loss(log_pi, min_qf_pi)
-
-            self.policy_optim.zero_grad()
-            policy_loss.backward()
-            self.policy_optim.step()
-
-        # pi, log_pi, _ = self.policy.sample(state_batch)
-        # qf1_pi, qf2_pi = self.critic(state_batch, pi)
-        #
-        # min_qf_pi = torch.min(qf1_pi, qf2_pi)
-        #
-        # policy_loss = self.calculate_policy_loss(log_pi, min_qf_pi)
-        #
-        # self.policy_optim.zero_grad()
-        # policy_loss.backward()
-        # self.policy_optim.step()
-
-        return log_pi, policy_loss.detach().item()
-
-    ###################################################################################################################
-    ###################################################################################################################
-    ###################################################################################################################
-
-    def update_alpha(self, log_pi):
-        if self.automatic_entropy_tuning:
-
-            if isinstance(self.alpha_optim, torch.optim.LBFGS):
-                def closure():
-                    alpha_loss = -(self.log_alpha * (log_pi + self.target_entropy).detach()).mean()
-                    self.alpha_optim.zero_grad()
-                    alpha_loss.backward()
-                    return alpha_loss
-
-                alpha_loss = self.alpha_optim.step(closure)
-            else:
-                alpha_loss = -(self.log_alpha * (log_pi + self.target_entropy).detach()).mean()
-                self.alpha_optim.zero_grad()
-                alpha_loss.backward()
-                self.alpha_optim.step()
-
-            self.alpha = self.log_alpha.exp()
-            alpha_tlogs = self.alpha.clone()
-
-
-        else:
-            alpha_loss = torch.tensor(0.).to(self.device)
-            alpha_tlogs = torch.tensor(self.alpha).item()  # For TensorboardX logs
-
-        return alpha_loss.detach().item(), alpha_tlogs
-
-    def update_parameters_sac(self,
-                              master_memory,
-                              batch_size,
-                              updates,
-                              total_step):
-        """
-        memory: memory buffer to sample transitions (s,a,s',r) or (s,a,s',r,linear)
-        batch_size: int, size of batch to update SAC
-        updates: int, number of updates that have been done until now
-        linear_warmup_only_rl: if we are doing warm up for only RL
-        time_to_update_actor: when to update the actor if we do more updates for critic than actor
-        writer: only valid when we are using beta parameter as it will write when the agent activates
-        """
-        self.total_update = updates
-
-        master_memory_idx = 0
-        for _ in range(self.config.sac['updates_per_episode_rpc']):
-
-            if master_memory_idx < len(master_memory):
-                state_master, action_master, reward_master, next_state_master, mask_master =\
-                    master_memory.buffer[master_memory_idx]
-
-                self.memory.push(state_master, action_master, reward_master, next_state_master, mask_master)
-
-                master_memory_idx += 1
-
-            if len(self.memory) > batch_size:
-                # Sample a batch from memory
-                state_batch, action_batch, reward_batch, next_state_batch, mask_batch\
-                    = self.get_tensors_from_memory(self.memory, batch_size)
-
-                qf1_loss_value, qf2_loss_value = self.update_critic(state_batch,
-                                                                    action_batch,
-                                                                    reward_batch,
-                                                                    next_state_batch,
-                                                                    mask_batch)
-
-                log_pi, policy_loss_value = self.update_actor(state_batch=state_batch)
-
-                alpha_loss_value, alpha_tlogs_value = self.update_alpha(log_pi)
-
-                if updates % self.target_update_interval == 0:
-                    soft_update(self.critic_target, self.critic, self.tau)
-
-        if len(self.memory) > batch_size and total_step % (10*self.config.sac['updates_per_episode_rpc']) == 0:
-            self.qf1_loss_list = [total_step, qf1_loss_value]
-            self.qf2_loss_list = [total_step, qf2_loss_value]
-            self.alpha_loss_value_list = [total_step, alpha_loss_value]
-            self.alpha_tlogs_value_list = [total_step, alpha_tlogs_value.item()]
-            self.policy_loss_value_list = [total_step, policy_loss_value]
-
-    ###################################################################################################################
-    ###################################################################################################################
-    ###################################################################################################################
-    # Save model parameters
-
-    def save_model(self, experiment_name, episode, modes_controlled, worker_id):
-        assert worker_id == self.worker_id
-
-        folder = "outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/output_models/models_rpc/" + experiment_name + "/"
-        if not os.path.exists(folder):
-            os.makedirs(folder)
-
-        actor_path = folder + experiment_name + "experiment_name_worker_{}_sac_actor_{}_episode_{}"\
-            .format(str(worker_id), experiment_name, str(episode))
-        critic_path = folder + experiment_name + "_worker_{}_sac_critic_{}_episode_{}"\
-            .format(str(worker_id), experiment_name, str(episode))
-
-        print('Saving actor to {}'.format(actor_path))
-        print('Saving critic to {}'.format(critic_path))
-
-        torch.save({
-            'worker_id': worker_id,
-            'models_controlled': modes_controlled,
-            'model_state_dict': self.policy.state_dict()
-        }, actor_path)
-
-        torch.save(self.critic.state_dict(), critic_path)

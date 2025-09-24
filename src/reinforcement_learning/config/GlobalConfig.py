@@ -1,8 +1,85 @@
 import json
-import sys
 import os
+import sys
+from json import JSONDecodeError
+
 # sys.path.append('src/reinforcement_learning/config')
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath("src/reinforcement_learning"))))
+
+
+def _strip_inline_comments(text: str) -> str:
+    """Remove trailing // or # comments that may appear in config files."""
+
+    cleaned_lines = []
+    for original_line in text.splitlines():
+        line = []
+        i = 0
+        while i < len(original_line):
+            char = original_line[i]
+            if char == '"':
+                line.append(char)
+                i += 1
+                # Copy the rest of the string verbatim, taking escaped quotes into account.
+                while i < len(original_line):
+                    line.append(original_line[i])
+                    if original_line[i] == '"' and original_line[i - 1] != '\\':
+                        i += 1
+                        break
+                    i += 1
+                continue
+            if char == '/' and i + 1 < len(original_line) and original_line[i + 1] == '/':
+                break
+            if char == '#':
+                break
+            line.append(char)
+            i += 1
+        cleaned_lines.append(''.join(line).rstrip())
+    return '\n'.join(cleaned_lines)
+
+
+def _strip_trailing_commas(text: str) -> str:
+    """Remove trailing commas before closing braces/brackets."""
+
+    result = []
+    i = 0
+    length = len(text)
+    while i < length:
+        char = text[i]
+        if char == '"':
+            result.append(char)
+            i += 1
+            while i < length:
+                result.append(text[i])
+                if text[i] == '"' and text[i - 1] != '\\':
+                    i += 1
+                    break
+                i += 1
+            continue
+        if char == ',':
+            j = i + 1
+            while j < length and text[j] in ' \t\r\n':
+                j += 1
+            if j < length and text[j] in '}]':
+                i += 1
+                continue
+        result.append(char)
+        i += 1
+    return ''.join(result)
+
+
+def _load_json_config(path: str) -> dict:
+    """Load a JSON config file, tolerating minor formatting issues."""
+
+    with open(path, "r", encoding="utf-8") as datafile:
+        raw_text = datafile.read()
+    try:
+        return json.loads(raw_text)
+    except JSONDecodeError:
+        sanitized = _strip_trailing_commas(_strip_inline_comments(raw_text))
+        try:
+            return json.loads(sanitized)
+        except JSONDecodeError as exc:
+            raise ValueError(f"Configuration file {path} is not valid JSON: {exc}") from exc
 
 class Config:
     """
@@ -18,14 +95,9 @@ class Config:
         config_file_path_autoencoder = in_p + '/config/parameters_autoencoder.cfg'
         # config_file_path_autoencoder = 'parameters_autoencoder.cfg'
 
-        with open(config_file_path, 'r') as datafile:
-            config = json.load(datafile)
-
-        with open(config_file_path_sac, 'r') as datafile:
-            config_sac = json.load(datafile)
-
-        with open(config_file_path_autoencoder, 'r') as datafile:
-            config_autoencoder = json.load(datafile)
+        config = _load_json_config(config_file_path)
+        config_sac = _load_json_config(config_file_path_sac)
+        config_autoencoder = _load_json_config(config_file_path_autoencoder)
 
         self.sac = dict()
         self.autoencoder = dict()
@@ -42,9 +114,11 @@ class Config:
         self.sac['automatic_entropy_tuning'] = str(config_sac['automatic_entropy_tuning'])
         self.sac['batch_size'] = int(config_sac['batch_size'])
         self.sac['gamma'] = float(config_sac['gamma'])
-        self.sac['hidden_size_critic'] = [int(config_sac['hidden_size_critic'])]
+        hidden_size_critic = int(config_sac['hidden_size_critic'])
+        num_layers_critic = max(1, int(config_sac['num_layers_critic']))
+        self.sac['num_layers_critic'] = num_layers_critic
+        self.sac['hidden_size_critic'] = [hidden_size_critic] * num_layers_critic
         self.sac['hidden_size_actor'] = int(config_sac['hidden_size_actor'])
-        self.sac['num_layers_critic'] = int(config_sac['num_layers_critic'])
         self.sac['num_layers_actor'] = int(config_sac['num_layers_actor'])
         self.sac['lr'] = float(config_sac['lr'])
         self.sac['policy'] = str(config_sac['policy'])
@@ -70,7 +144,30 @@ class Config:
 
         self.sac['l2_norm_policy'] = -1
         self.sac['LOG_SIG_MAX'] = 2.0
-        self.sac['updates_per_episode_rpc'] = 1000
+        self.sac['updates_per_episode_rpc'] = int(config_sac.get('updates_per_episode_rpc', "4"))
+
+        # Stabilisation helpers used by transformer based policies.  Default
+        # values are provided so older configuration files remain valid.
+        self.sac['entropy_coef'] = float(config_sac.get('entropy_coef', "0.0"))
+        self.sac['normalize_advantage'] = config_sac.get('normalize_advantage', "True")
+        self.sac['advantage_norm_epsilon'] = float(config_sac.get('advantage_norm_epsilon', "1e-5"))
+        self.sac['gradient_clip_norm'] = float(config_sac.get('gradient_clip_norm', "0.0"))
+        self.sac['gae_lambda'] = float(config_sac.get('gae_lambda', "0.95"))
+        self.sac['value_coef'] = float(config_sac.get('value_coef', "0.5"))
+        self.sac['ppo_clip_param'] = float(config_sac.get('ppo_clip_param', "0.2"))
+        self.sac['value_clip_param'] = float(config_sac.get('value_clip_param', "0.0"))
+        self.sac['normalize_rewards'] = config_sac.get('normalize_rewards', "True")
+        self.sac['reward_clip'] = float(config_sac.get('reward_clip', "0.0"))
+        self.sac['reward_improvement_weight'] = float(config_sac.get('reward_improvement_weight', "1.0"))
+        self.sac['reward_penalty_weight'] = float(config_sac.get('reward_penalty_weight', "0.1"))
+        self.sac['reward_strehl_weight'] = float(config_sac.get('reward_strehl_weight', "0.0"))
+        self.sac['reward_momentum'] = float(config_sac.get('reward_momentum', "0.5"))
+        self.sac['reward_strehl_absolute_weight'] = float(config_sac.get('reward_strehl_absolute_weight', "0.0"))
+        self.sac['reward_strehl_target'] = float(config_sac.get('reward_strehl_target', "0.0"))
+        self.sac['reward_strehl_clip'] = float(config_sac.get('reward_strehl_clip', "0.0"))
+        self.sac['reward_strehl_index'] = int(config_sac.get('reward_strehl_index', "0"))
+        self.sac['reward_relative_improvement'] = config_sac.get('reward_relative_improvement', "False")
+        self.sac['reward_relative_epsilon'] = float(config_sac.get('reward_relative_epsilon', "1e-6"))
 
         # 2) Environment Reinforcement Learning Config
 
