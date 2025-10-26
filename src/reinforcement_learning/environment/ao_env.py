@@ -1,19 +1,25 @@
-import matplotlib.pyplot as plt
-import gym
-from gym import spaces
-import numpy as np
+import logging
 import math
+import os
 import pickle
-from collections import deque, OrderedDict
-import shesha.constants as scons
-from src.autoencoder.autoencoder_models import Autoencoder
+import time
+from collections import OrderedDict, deque
+
+import gym
+import matplotlib.pyplot as plt
+import numpy as np
+from gym import spaces
+from matplotlib.gridspec import GridSpec
 from scipy.ndimage.measurements import center_of_mass
+
+import shesha.constants as scons
 from shesha.util.utilities import load_config_from_file
+
+from src.autoencoder.autoencoder_models import Autoencoder
 from src.reinforcement_learning.helper_functions.preprocessing.normalization.obtain_normalization \
    import run_obtain_normalization_and_freedom
-import os
-from matplotlib.gridspec import GridSpec
-import time
+
+logger = logging.getLogger(__name__)
 
 class AoEnv(gym.Env):
     """
@@ -592,7 +598,14 @@ class AoEnv(gym.Env):
         :param reward_type, if it is None use the default, otherwise use it
         """
 
-        r_se, r_le, r_va, _ = self.supervisor.target.get_strehl(target)
+        try:
+            r_se, r_le, r_va, _ = self.supervisor.target.get_strehl(target, do_fit=False)
+        except Exception as exc:  # pragma: no cover - backend specific
+            logger.warning("Failed to estimate Strehl for target %s: %s", target, exc)
+            self.supervisor.target.reset_strehl(target)
+            r_se = 0.0
+            r_le = 0.0
+            r_va = 0.0
 
         if reward_type is None:
             reward_type = self.reward_type

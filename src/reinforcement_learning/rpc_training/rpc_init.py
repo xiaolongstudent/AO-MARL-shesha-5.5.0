@@ -1,14 +1,15 @@
 import torch.distributed.rpc as rpc
 import os
 from src.reinforcement_learning.helper_functions.utils.help_initialization import obtain_args, print_and_assertions
-from src.reinforcement_learning.config.GlobalConfig import Config
 import random
-import torch
+
 import numpy as np
-# from tensorboard import  SummaryWriter
-from torch.utils.tensorboard import SummaryWriter
-from hcipy import FFMpegWriter
+import torch
 import matplotlib.pyplot as plt
+from hcipy import FFMpegWriter
+from torch.utils.tensorboard import SummaryWriter
+
+from src.reinforcement_learning.config.GlobalConfig import Config
 
 MASTER_NAME = "Compass"
 AGENT_NAME = "Agent{}"
@@ -47,8 +48,17 @@ def initialize_master_worker_paradigm(rank,
         print_and_assertions(config, seed)
 
         # g) Create summary writer
-        writer_performance = SummaryWriter('outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/runs/performance/performance_' + experiment_name)
-        writer_metrics_1 = SummaryWriter('outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/runs/metrics_1/metrics_' + experiment_name)
+        config.savedir = os.path.abspath(config.savedir)
+        os.makedirs(config.savedir, exist_ok=True)
+        runs_root = os.path.join(config.savedir, "runs")
+        os.makedirs(os.path.join(runs_root, "performance"), exist_ok=True)
+        os.makedirs(os.path.join(runs_root, "metrics_1"), exist_ok=True)
+        writer_performance = SummaryWriter(
+            os.path.join(runs_root, "performance", f"performance_{experiment_name}")
+        )
+        writer_metrics_1 = SummaryWriter(
+            os.path.join(runs_root, "metrics_1", f"metrics_{experiment_name}")
+        )
 
         rpc.init_rpc(MASTER_NAME, rank=rank, world_size=world_size)
         trainer = TrainerRPC(config_rl=config,
@@ -107,6 +117,7 @@ def initialize_master_worker_paradigm(rank,
     else:
         config = Config()
         args = obtain_args(config)
+        config.savedir = os.path.abspath(config.savedir)
         seed = args.seed
         torch.manual_seed(seed)
         np.random.seed(seed)
