@@ -1,8 +1,85 @@
 import json
-import sys
 import os
+import sys
+from json import JSONDecodeError
+
 # sys.path.append('src/reinforcement_learning/config')
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath("src/reinforcement_learning"))))
+
+
+def _strip_inline_comments(text: str) -> str:
+    """Remove trailing // or # comments that may appear in config files."""
+
+    cleaned_lines = []
+    for original_line in text.splitlines():
+        line = []
+        i = 0
+        while i < len(original_line):
+            char = original_line[i]
+            if char == '"':
+                line.append(char)
+                i += 1
+                # Copy the rest of the string verbatim, taking escaped quotes into account.
+                while i < len(original_line):
+                    line.append(original_line[i])
+                    if original_line[i] == '"' and original_line[i - 1] != '\\':
+                        i += 1
+                        break
+                    i += 1
+                continue
+            if char == '/' and i + 1 < len(original_line) and original_line[i + 1] == '/':
+                break
+            if char == '#':
+                break
+            line.append(char)
+            i += 1
+        cleaned_lines.append(''.join(line).rstrip())
+    return '\n'.join(cleaned_lines)
+
+
+def _strip_trailing_commas(text: str) -> str:
+    """Remove trailing commas before closing braces/brackets."""
+
+    result = []
+    i = 0
+    length = len(text)
+    while i < length:
+        char = text[i]
+        if char == '"':
+            result.append(char)
+            i += 1
+            while i < length:
+                result.append(text[i])
+                if text[i] == '"' and text[i - 1] != '\\':
+                    i += 1
+                    break
+                i += 1
+            continue
+        if char == ',':
+            j = i + 1
+            while j < length and text[j] in ' \t\r\n':
+                j += 1
+            if j < length and text[j] in '}]':
+                i += 1
+                continue
+        result.append(char)
+        i += 1
+    return ''.join(result)
+
+
+def _load_json_config(path: str) -> dict:
+    """Load a JSON config file, tolerating minor formatting issues."""
+
+    with open(path, "r", encoding="utf-8") as datafile:
+        raw_text = datafile.read()
+    try:
+        return json.loads(raw_text)
+    except JSONDecodeError:
+        sanitized = _strip_trailing_commas(_strip_inline_comments(raw_text))
+        try:
+            return json.loads(sanitized)
+        except JSONDecodeError as exc:
+            raise ValueError(f"Configuration file {path} is not valid JSON: {exc}") from exc
 
 class Config:
     """
@@ -18,14 +95,9 @@ class Config:
         config_file_path_autoencoder = in_p + '/config/parameters_autoencoder.cfg'
         # config_file_path_autoencoder = 'parameters_autoencoder.cfg'
 
-        with open(config_file_path, 'r') as datafile:
-            config = json.load(datafile)
-
-        with open(config_file_path_sac, 'r') as datafile:
-            config_sac = json.load(datafile)
-
-        with open(config_file_path_autoencoder, 'r') as datafile:
-            config_autoencoder = json.load(datafile)
+        config = _load_json_config(config_file_path)
+        config_sac = _load_json_config(config_file_path_sac)
+        config_autoencoder = _load_json_config(config_file_path_autoencoder)
 
         self.sac = dict()
         self.autoencoder = dict()
@@ -42,9 +114,11 @@ class Config:
         self.sac['automatic_entropy_tuning'] = str(config_sac['automatic_entropy_tuning'])
         self.sac['batch_size'] = int(config_sac['batch_size'])
         self.sac['gamma'] = float(config_sac['gamma'])
-        self.sac['hidden_size_critic'] = [int(config_sac['hidden_size_critic'])]
+        hidden_size_critic = int(config_sac['hidden_size_critic'])
+        num_layers_critic = max(1, int(config_sac['num_layers_critic']))
+        self.sac['num_layers_critic'] = num_layers_critic
+        self.sac['hidden_size_critic'] = [hidden_size_critic] * num_layers_critic
         self.sac['hidden_size_actor'] = int(config_sac['hidden_size_actor'])
-        self.sac['num_layers_critic'] = int(config_sac['num_layers_critic'])
         self.sac['num_layers_actor'] = int(config_sac['num_layers_actor'])
         self.sac['lr'] = float(config_sac['lr'])
         self.sac['policy'] = str(config_sac['policy'])
@@ -68,9 +142,170 @@ class Config:
         self.sac['save_rewards_buffer'] = str(config_sac['save_rewards_buffer'])
 
 
+        offline_enabled_raw = config_sac.get('offline_dataset_enabled', "False")
+        self.sac['offline_dataset_enabled'] = str(offline_enabled_raw).lower() == 'true'
+        offline_dir_raw = config_sac.get('offline_dataset_dir')
+        if offline_dir_raw is None or str(offline_dir_raw).lower() in {"none", ""}:
+            offline_dir = None
+        else:
+            offline_dir = str(offline_dir_raw)
+        self.sac['offline_dataset_dir'] = offline_dir
+        self.sac['offline_dataset_format'] = str(config_sac.get('offline_dataset_format', "npz"))
+        self.sac['offline_dataset_flush_episodes'] = int(
+            config_sac.get('offline_dataset_flush_episodes', "10")
+        )
+        include_mu_raw = config_sac.get('offline_dataset_include_mu', "False")
+        self.sac['offline_dataset_include_mu'] = str(include_mu_raw).lower() == 'true'
+
+
         self.sac['l2_norm_policy'] = -1
         self.sac['LOG_SIG_MAX'] = 2.0
-        self.sac['updates_per_episode_rpc'] = 1000
+        self.sac['updates_per_episode_rpc'] = int(config_sac.get('updates_per_episode_rpc', "4"))
+
+        # Stabilisation helpers used by transformer based policies.  Default
+        # values are provided so older configuration files remain valid.
+        self.sac['entropy_coef'] = float(config_sac.get('entropy_coef', "0.0"))
+        self.sac['normalize_advantage'] = config_sac.get('normalize_advantage', "True")
+        self.sac['advantage_norm_epsilon'] = float(config_sac.get('advantage_norm_epsilon', "1e-5"))
+        self.sac['gradient_clip_norm'] = float(config_sac.get('gradient_clip_norm', "0.0"))
+        self.sac['gae_lambda'] = float(config_sac.get('gae_lambda', "0.95"))
+        self.sac['value_coef'] = float(config_sac.get('value_coef', "0.5"))
+        self.sac['ppo_clip_param'] = float(config_sac.get('ppo_clip_param', "0.2"))
+        self.sac['value_clip_param'] = float(config_sac.get('value_clip_param', "0.0"))
+        self.sac['normalize_rewards'] = config_sac.get('normalize_rewards', "True")
+        self.sac['reward_scale'] = float(config_sac.get('reward_scale', "1.0"))
+        self.sac['reward_clip'] = float(config_sac.get('reward_clip', "0.0"))
+        self.sac['reward_epsilon'] = float(config_sac.get('reward_epsilon', "1e-6"))
+        self.sac['reward_residual_weight'] = float(config_sac.get('reward_residual_weight', "1.0"))
+        self.sac['reward_strehl_weight'] = float(config_sac.get('reward_strehl_weight', "0.1"))
+        self.sac['reward_delta_weight'] = float(config_sac.get('reward_delta_weight', "0.0"))
+        self.sac['transformer_dropout'] = float(config_sac.get('transformer_dropout', "0.1"))
+        self.sac['transformer_ff_multiplier'] = float(config_sac.get('transformer_ff_multiplier', "2.0"))
+        self.sac['mat_replay_window'] = int(config_sac.get('mat_replay_window', "0"))
+        self.sac['dt_context_len'] = int(config_sac.get('dt_context_len', "8"))
+        self.sac['dt_nhead'] = max(1, int(config_sac.get('dt_nhead', "4")))
+        dt_num_layers_raw = config_sac.get('dt_num_layers')
+        if dt_num_layers_raw is None or str(dt_num_layers_raw).strip() == "":
+            self.sac['dt_num_layers'] = None
+        else:
+            self.sac['dt_num_layers'] = max(1, int(dt_num_layers_raw))
+        self.sac['dt_target_return'] = float(config_sac.get('dt_target_return', "800.0"))
+        self.sac['dt_discount'] = float(config_sac.get('dt_discount', "0.99"))
+        self.sac['dt_action_scale'] = float(config_sac.get('dt_action_scale', "1.0"))
+        dt_return_scale_raw = config_sac.get('dt_return_scale')
+        if dt_return_scale_raw is None:
+            target = max(self.sac['dt_target_return'], 1.0)
+            self.sac['dt_return_scale'] = max(1.0 / target, 0.1)
+        else:
+            self.sac['dt_return_scale'] = float(dt_return_scale_raw)
+        self.sac['dt_return_clip'] = float(config_sac.get('dt_return_clip', "2000.0"))
+        self.sac['dt_return_floor_ratio'] = float(
+            config_sac.get('dt_return_floor_ratio', "0.0")
+        )
+        self.sac['dt_step_return_scale'] = float(config_sac.get('dt_step_return_scale', "0.5"))
+        self.sac['dt_step_return_beta'] = float(config_sac.get('dt_step_return_beta', "0.15"))
+        self.sac['dt_reward_scale'] = float(config_sac.get('dt_reward_scale', "1.0"))
+        self.sac['dt_reward_center'] = float(config_sac.get('dt_reward_center', "0.0"))
+        self.sac['dt_reward_clip'] = float(config_sac.get('dt_reward_clip', "0.0"))
+        self.sac['dt_strehl_weight'] = float(config_sac.get('dt_strehl_weight', "0.05"))
+        self.sac['dt_residual_weight'] = float(config_sac.get('dt_residual_weight', "1.0"))
+        self.sac['dt_reward_delta_weight'] = float(config_sac.get('dt_reward_delta_weight', "0.0"))
+        self.sac['dt_reward_momentum'] = float(config_sac.get('dt_reward_momentum', "0.2"))
+        self.sac['dt_reward_smoothing'] = float(config_sac.get('dt_reward_smoothing', "0.02"))
+        self.sac['dt_target_momentum'] = float(config_sac.get('dt_target_momentum', "0.9"))
+        self.sac['dt_strehl_momentum'] = float(
+            config_sac.get('dt_strehl_momentum', self.sac['dt_target_momentum'])
+        )
+        self.sac['dt_target_offset'] = float(config_sac.get('dt_target_offset', "0.0"))
+        self.sac['dt_target_gain'] = float(config_sac.get('dt_target_gain', "0.0"))
+        self.sac['dt_target_min'] = float(config_sac.get('dt_target_min', "0.0"))
+        self.sac['dt_replay_episodes'] = max(1, int(config_sac.get('dt_replay_episodes', "32")))
+        self.sac['dt_recent_episodes'] = max(1, int(config_sac.get('dt_recent_episodes', "10")))
+        self.sac['dt_best_episodes'] = max(
+            1,
+            int(
+                config_sac.get(
+                    'dt_best_episodes',
+                    str(self.sac['dt_replay_episodes'])
+                )
+            ),
+        )
+        self.sac['dt_sequence_stride'] = max(1, int(config_sac.get('dt_sequence_stride', "1")))
+        self.sac['dt_loss_temperature'] = float(config_sac.get('dt_loss_temperature', "1.0"))
+        self.sac['dt_recent_weight'] = float(config_sac.get('dt_recent_weight', "0.3"))
+        dt_normalize_returns = config_sac.get('dt_normalize_returns', "True")
+        if isinstance(dt_normalize_returns, str):
+            dt_normalize_returns = dt_normalize_returns.lower() == "true"
+        else:
+            dt_normalize_returns = bool(dt_normalize_returns)
+        self.sac['dt_normalize_returns'] = dt_normalize_returns
+        self.sac['dt_return_norm_epsilon'] = float(config_sac.get('dt_return_norm_epsilon', "1e-6"))
+        self.sac['dt_quality_strehl_weight'] = float(
+            config_sac.get('dt_quality_strehl_weight', "0.0")
+        )
+        self.sac['dt_sequences_topk'] = max(
+            0, int(config_sac.get('dt_sequences_topk', "384"))
+        )
+        self.sac['dt_sequences_min_keep_recent'] = max(
+            0, int(config_sac.get('dt_sequences_min_keep_recent', "32"))
+        )
+        updates_override = config_sac.get('dt_updates_per_episode', None)
+        if updates_override is None:
+            self.sac['dt_updates_per_episode'] = None
+        else:
+            updates_str = str(updates_override).strip().lower()
+            if updates_str in ("", "none"):
+                self.sac['dt_updates_per_episode'] = None
+            else:
+                self.sac['dt_updates_per_episode'] = max(1, int(float(updates_str)))
+        self.sac['dt_offline_dataset_glob'] = config_sac.get('dt_offline_dataset_glob', None)
+        self.sac['dt_offline_mix_ratio'] = float(config_sac.get('dt_offline_mix_ratio', "0.0"))
+        self.sac['dt_offline_mix_ratio_start'] = float(
+            config_sac.get('dt_offline_mix_ratio_start', self.sac['dt_offline_mix_ratio'])
+        )
+        self.sac['dt_offline_mix_ratio_final'] = float(
+            config_sac.get('dt_offline_mix_ratio_final', self.sac['dt_offline_mix_ratio'])
+        )
+        self.sac['dt_offline_mix_ratio_decay'] = max(
+            1, int(config_sac.get('dt_offline_mix_ratio_decay', "1"))
+        )
+        self.sac['dt_offline_mix_ratio_warmup'] = max(
+            0, int(config_sac.get('dt_offline_mix_ratio_warmup', "0"))
+        )
+        self.sac['dt_offline_max_episodes'] = int(config_sac.get('dt_offline_max_episodes', "0"))
+        keep_ratio = float(config_sac.get('dt_offline_keep_top_ratio', "0.0"))
+        self.sac['dt_offline_keep_top_ratio'] = min(max(keep_ratio, 0.0), 1.0)
+        keep_strehl_ratio = float(config_sac.get('dt_offline_keep_strehl_ratio', "0.0"))
+        self.sac['dt_offline_keep_strehl_ratio'] = min(
+            max(keep_strehl_ratio, 0.0), 1.0
+        )
+        self.sac['dt_offline_elite_count'] = max(
+            0, int(config_sac.get('dt_offline_elite_count', "0"))
+        )
+        self.sac['dt_offline_elite_fraction'] = float(
+            config_sac.get('dt_offline_elite_fraction', "0.0")
+        )
+        self.sac['dt_offline_reserve_limit'] = max(
+            0, int(config_sac.get('dt_offline_reserve_limit', "0"))
+        )
+        min_return_cfg = config_sac.get('dt_offline_min_return', None)
+        if min_return_cfg is None:
+            self.sac['dt_offline_min_return'] = None
+        else:
+            min_return_str = str(min_return_cfg).strip().lower()
+            if min_return_str in ("", "none"):
+                self.sac['dt_offline_min_return'] = None
+            else:
+                self.sac['dt_offline_min_return'] = float(min_return_cfg)
+        min_strehl_cfg = config_sac.get('dt_offline_min_strehl', None)
+        if min_strehl_cfg is None:
+            self.sac['dt_offline_min_strehl'] = None
+        else:
+            min_strehl_str = str(min_strehl_cfg).strip().lower()
+            if min_strehl_str in ("", "none"):
+                self.sac['dt_offline_min_strehl'] = None
+            else:
+                self.sac['dt_offline_min_strehl'] = float(min_strehl_cfg)
 
         # 2) Environment Reinforcement Learning Config
 
@@ -93,7 +328,7 @@ class Config:
 
         # Related to reward
 
-        self.env_rl['reward_type'] = "avg_squared_modes_1000"
+        self.env_rl['reward_type'] = str(config['env_rl_parameters'].get('reward_type', "avg_squared_modes_200"))
         self.env_rl['delayed_assignment'] = int(config['env_rl_parameters']['delayed_assignment'])
 
         # Related to state
@@ -108,6 +343,9 @@ class Config:
         self.env_rl['number_of_previous_dm_residuals'] = 0
 
         self.env_rl['reward_mode'] = str(config['env_rl_parameters']['reward_mode'])
+        self.env_rl['reward_residual_smoothing'] = float(
+            config['env_rl_parameters'].get('reward_residual_smoothing', "0.0")
+        )
 
         self.env_rl['n_zernike_start_end'] = [0, 80]
         self.env_rl['n_reverse_filtered_from_cmat'] = 5
@@ -172,8 +410,18 @@ class Config:
         Updates config object with the arguments
         """
 
-        if args.algorithm == "SAC":
+        algorithm_name = str(args.algorithm).strip().lower()
+        if algorithm_name in {"sac", "mat", "multi-agent-transformer", "dt",
+                              "decision_transformer", "decision-transformer"}:
+            # MAT/DT currently reuse the same hyper-parameter structure that the
+            # historical SAC implementation relied on.  Accepting the extra
+            # names keeps backwards compatibility with configuration files that
+            # select one of the transformer agents while still funnelling all of
+            # the tuning knobs through the existing SAC parsing logic.
             self.update_sac(args)
+            # Preserve the requested algorithm name so the trainer can decide
+            # whether to build SAC, MAT or Decision Transformer instances.
+            self.algorithm = args.algorithm
         else:
             raise NotImplementedError
 
@@ -218,6 +466,8 @@ class Config:
         self.sac['l2_norm_policy'] = float(args.l2_norm_policy)
         self.sac['updates_per_episode_rpc'] = int(args.updates_per_episode_rpc)
         self.sac['LOG_SIG_MAX'] = float(args.LOG_SIG_MAX)
+        if hasattr(args, 'mat_replay_window'):
+            self.sac['mat_replay_window'] = int(args.mat_replay_window)
 
         # Loading
         self.sac['pretrained_replay_path'] = args.pretrained_replay_path
@@ -252,6 +502,8 @@ class Config:
 
         # Related to the reward
         self.env_rl['reward_mode'] = args.reward_mode
+        if hasattr(args, 'reward_residual_smoothing'):
+            self.env_rl['reward_residual_smoothing'] = float(args.reward_residual_smoothing)
 
 
         self.env_rl['max_steps_episode'] = args.max_steps_per_episode

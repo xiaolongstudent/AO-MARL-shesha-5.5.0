@@ -1,18 +1,155 @@
-from src.reinforcement_learning.environment import ao_env
-import os
-import numpy as np
-from src.reinforcement_learning.environment.delayed_mdp import DelayedMDP
-import time
-from src.reinforcement_learning.rpc_training.algorithms_rpc.replay_memory_rpc import \
-            ReplayMemory
-from src.reinforcement_learning.rpc_training.helper_rpc.helper_pure_rpc import _call_method
-from torch.distributed.rpc import RRef, rpc_sync, rpc_async, remote
-import torch.distributed.rpc as rpc
-from src.reinforcement_learning.rpc_training.helper_rpc.helper_rewards import get_separated_rewards
-from src.reinforcement_learning.rpc_training.helper_rpc.helper_states import get_modes_chosen
+import logging
 import math
-from hcipy import FFMpegWriter
+import os
+import time
+
 import matplotlib.pyplot as plt
+import numpy as np
+import torch.distributed.rpc as rpc
+from hcipy import FFMpegWriter
+from torch.distributed.rpc import RRef, rpc_async, rpc_sync, remote
+
+from src.reinforcement_learning.environment import ao_env
+from src.reinforcement_learning.environment.delayed_mdp import DelayedMDP
+from src.reinforcement_learning.rpc_training.algorithms_rpc.replay_memory_rpc import (
+    ReplayMemory,
+)
+from src.reinforcement_learning.rpc_training.helper_rpc.helper_pure_rpc import (
+    _call_method,
+)
+from src.reinforcement_learning.rpc_training.helper_rpc.helper_rewards import (
+    get_separated_rewards,
+)
+from src.reinforcement_learning.rpc_training.helper_rpc.helper_states import (
+    get_modes_chosen,
+)
+
+
+class OfflineDatasetRecorder:
+    """Collect and persist MASAC transitions for offline use."""
+
+    def __init__(self, output_dir, world_size, flush_episodes=1,
+                 include_mu=False, fmt="npz"):
+        self.enabled = bool(output_dir)
+        if not self.enabled:
+            return
+
+        self.output_dir = os.path.abspath(output_dir)
+        os.makedirs(self.output_dir, exist_ok=True)
+        self.world_size = world_size
+        self.flush_episodes = max(1, int(flush_episodes))
+        self.include_mu = bool(include_mu)
+        fmt = (fmt or "npz").lower()
+        if fmt != "npz":
+            raise ValueError(f"Unsupported offline dataset format: {fmt}")
+        self.format = fmt
+
+        self._buffer = []
+        self._current_episode = None
+        self._write_index = 0
+
+    def start_episode(self, episode_index, initial_strehl=None):
+        if not self.enabled:
+            return
+        self._current_episode = {
+            "episode_index": int(episode_index),
+            "initial_strehl": None if initial_strehl is None else float(initial_strehl),
+            "steps": {worker_id: [] for worker_id in range(1, self.world_size)},
+            "metadata": {},
+        }
+
+    def record_transition(self, worker_id, state, action, reward, next_state, done, mu=None):
+        if not self.enabled or self._current_episode is None:
+            return
+
+        state_np = np.asarray(state, dtype=np.float32).copy()
+        action_np = np.asarray(action, dtype=np.float32).copy()
+        next_state_np = np.asarray(next_state, dtype=np.float32).copy()
+        reward_val = float(reward)
+        done_val = bool(done)
+
+        if self.include_mu and mu is not None:
+            mu_np = np.asarray(mu, dtype=np.float32).copy()
+        else:
+            mu_np = None
+
+        self._current_episode["steps"][worker_id].append(
+            (state_np, action_np, reward_val, next_state_np, done_val, mu_np)
+        )
+
+    def finish_episode(self, metadata=None):
+        if not self.enabled or self._current_episode is None:
+            return
+
+        if metadata:
+            self._current_episode["metadata"].update(metadata)
+
+        if "step_count" not in self._current_episode["metadata"]:
+            total_steps = sum(len(v) for v in self._current_episode["steps"].values())
+            self._current_episode["metadata"]["step_count"] = total_steps
+
+        self._buffer.append(self._current_episode)
+        self._current_episode = None
+
+        if len(self._buffer) >= self.flush_episodes:
+            self.flush()
+
+    def flush(self):
+        if not self.enabled or not self._buffer:
+            return
+
+        for episode in self._buffer:
+            arrays = self._episode_to_arrays(episode)
+            filename = f"episode_{self._write_index:06d}.npz"
+            path = os.path.join(self.output_dir, filename)
+            np.savez_compressed(path, **arrays)
+            self._write_index += 1
+
+        self._buffer.clear()
+
+    def close(self):
+        if not self.enabled:
+            return
+        self.flush()
+
+    def _episode_to_arrays(self, episode):
+        data = {
+            "episode_index": np.array([episode["episode_index"]], dtype=np.int64),
+        }
+        initial_strehl = episode.get("initial_strehl")
+        if initial_strehl is not None:
+            data["initial_strehl"] = np.array([initial_strehl], dtype=np.float32)
+
+        meta = episode["metadata"]
+        if "total_reward" in meta:
+            data["total_reward"] = np.array([meta["total_reward"]], dtype=np.float32)
+        if "final_strehl" in meta:
+            data["final_strehl"] = np.array([meta["final_strehl"]], dtype=np.float32)
+        if "step_count" in meta:
+            data["step_count"] = np.array([int(meta["step_count"])], dtype=np.int32)
+
+        for worker_id, transitions in episode["steps"].items():
+            if not transitions:
+                continue
+            states = np.stack([item[0] for item in transitions], axis=0)
+            actions = np.stack([item[1] for item in transitions], axis=0)
+            rewards = np.array([item[2] for item in transitions], dtype=np.float32)
+            next_states = np.stack([item[3] for item in transitions], axis=0)
+            dones = np.array([item[4] for item in transitions], dtype=np.bool_)
+
+            prefix = f"worker{worker_id}"
+            data[f"{prefix}_states"] = states
+            data[f"{prefix}_actions"] = actions
+            data[f"{prefix}_rewards"] = rewards
+            data[f"{prefix}_next_states"] = next_states
+            data[f"{prefix}_dones"] = dones
+
+            if self.include_mu and transitions and transitions[0][5] is not None:
+                mus = np.stack([item[5] for item in transitions], axis=0)
+                data[f"{prefix}_mu"] = mus
+
+        return data
+
 
 
 
@@ -68,6 +205,8 @@ class TrainerRPC:
         # 0) a. RPC
         print("train_rpc_kan.py")
 
+        self.savedir = os.path.abspath(config_rl.savedir)
+        os.makedirs(self.savedir, exist_ok=True)
         self.n_filtered = config_rl.env_rl['n_reverse_filtered_from_cmat']
         self.ag_rrefs = []
         self.master_rref = RRef(self)
@@ -79,6 +218,28 @@ class TrainerRPC:
         folder = "outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/output_models/models_rpc/" + experiment_name + "/"
         if not os.path.exists(folder):
             os.makedirs(folder)
+
+        offline_enabled = config_rl.sac['offline_dataset_enabled']
+        offline_dir = config_rl.sac['offline_dataset_dir']
+
+        if offline_enabled:
+            if not offline_dir:
+                offline_dir = os.path.join(self.savedir, "offline_datasets")
+            elif not os.path.isabs(offline_dir):
+                offline_dir = os.path.join(self.savedir, offline_dir)
+            flush_every = config_rl.sac['offline_dataset_flush_episodes']
+            include_mu = config_rl.sac['offline_dataset_include_mu']
+            fmt = config_rl.sac['offline_dataset_format']
+            dataset_root = os.path.join(offline_dir, experiment_name)
+            self.offline_dataset_recorder = OfflineDatasetRecorder(
+                dataset_root,
+                world_size,
+                flush_episodes=flush_every,
+                include_mu=include_mu,
+                fmt=fmt,
+            )
+        else:
+            self.offline_dataset_recorder = None
 
 
         # 1) Initializing AO env
@@ -96,6 +257,10 @@ class TrainerRPC:
         # Set environment seed given for the experiment
 
         self.env.set_sim_seed(seed)
+
+        # Strehl estimation guard rails
+        self._strehl_warning_emitted = False
+        self._last_safe_strehl = {}
 
         # 2) b. Choose RPC experiment
 
@@ -466,6 +631,27 @@ class TrainerRPC:
 
         return divided_states
 
+    def _safe_get_strehl(self, tar_index=0):
+        """Return Strehl metrics while shielding against estimator failures."""
+
+        try:
+            values = self.env.supervisor.target.get_strehl(tar_index, do_fit=False)
+        except Exception as exc:  # pragma: no cover - simulator specific
+            if not self._strehl_warning_emitted:
+                logging.warning(
+                    "Failed to estimate Strehl for target %s: %s", tar_index, exc
+                )
+                self._strehl_warning_emitted = True
+            values = self._last_safe_strehl.get(tar_index)
+            if values is None:
+                values = (0.0, 0.0, 0.0)
+        else:
+            values = tuple(float(np.nan_to_num(val, nan=0.0)) for val in values)
+            self._last_safe_strehl[tar_index] = values
+            self._strehl_warning_emitted = False
+
+        return values
+
     def manage_changing_conditions(self):
         if self.config_rl.env_rl['change_atmospheric_3_layers_1'] and self.num_episode == 1000:
             # From wind direction 0 0 0 to 0 15 30
@@ -503,7 +689,7 @@ class TrainerRPC:
 
             if self.num_episode % 10 == 0:
                 self.writer_performance.add_scalar("Training_Reward/Evolution of SR LE",
-                                                    self.env.supervisor.target.get_strehl(0)[1], self.num_episode)
+                                                    self._safe_get_strehl(0)[1], self.num_episode)
                 self.writer_performance.add_scalar("Training_Reward/Average Reward of last 10 episodes", r_total,
                                                     self.num_episode)
 
@@ -543,6 +729,9 @@ class TrainerRPC:
             if self.total_step > self.max_num_steps:
                 break
 
+        if self.offline_dataset_recorder:
+            self.offline_dataset_recorder.close()
+
     def episode(self):
         """
         Does an episode of the environment
@@ -550,6 +739,10 @@ class TrainerRPC:
         """
 
         step, r_total, done, s, start_time = 0, 0, False, self.env.reset(), time.time()
+        initial_strehl = self._safe_get_strehl(0)[0]
+
+        if self.offline_dataset_recorder:
+            self.offline_dataset_recorder.start_episode(self.num_episode, initial_strehl)
 
         self.delayed_mdp_object = DelayedMDP(self.config_rl.env_rl['delayed_assignment'],
                                              self.config_rl.env_rl['modification_online'])
@@ -584,12 +777,19 @@ class TrainerRPC:
             # 6. s = s_next
             s = s_next.copy()
 
+        if self.offline_dataset_recorder:
+            self.offline_dataset_recorder.finish_episode({
+                "total_reward": float(r_total),
+                "final_strehl": float(self._safe_get_strehl(0)[0]),
+                "step_count": int(step),
+            })
+
         self.update_all_agents()
 
         print('Episode: {} \tTotal steps: {} \tEpisode steps: {} \tNum updates: {}'
               ' \tSeed: {} \tCurrent Reward: {:.4f} \tSR SE: {:.4f} \tTime {:.4f}'
               .format(self.num_episode, self.total_step, step, self.total_update, self.seed,
-                      r_total, self.env.supervisor.target.get_strehl(0)[0], time.time()-start_time))
+                      r_total, self._safe_get_strehl(0)[0], time.time()-start_time))
 
         self.num_episode += 1
 
@@ -665,14 +865,14 @@ class TrainerRPC:
             # #rmsMicron = @(x) 1e6*sqrt(x).*ngs.wavelength/2/pi;
             r_total_test += np.sum(list(reward_divided.values()))
             r_per_agent_test += np.array(list(reward_divided.values()))
-            sr_se_test = self.env.supervisor.target.get_strehl(0)[0]
-            sr_sl_test = self.env.supervisor.target.get_strehl(0)[1]
+            sr_se_test = self._safe_get_strehl(0)[0]
+            sr_sl_test = self._safe_get_strehl(0)[1]
             target_image = self.env.supervisor.target.get_tar_image(0)
             sr_se_test_list.append(sr_se_test)
             sr_sl_test_list.append(sr_sl_test)
             # print("sr----------",sr_se_test)
             #
-            # original_sr = self.env.supervisor.target.get_strehl(1)[0]
+            # original_sr = self._safe_get_strehl(1)[0]
             # original_target_image = self.env.supervisor.target.get_tar_image(1)
             # print("original_sr------------",original_sr)
             #
@@ -706,7 +906,7 @@ class TrainerRPC:
         # plt.close()
         # anim.close()
         #
-        sr_le_test = self.env.supervisor.target.get_strehl(0)[1]
+        sr_le_test = self._safe_get_strehl(0)[1]
         sr_se_test = np.average(sr_se_test_list)
         #
         # plt.figure()
@@ -731,7 +931,7 @@ class TrainerRPC:
             # Geometric metrics, geometric index is 1
             r_geo_per_agent_test = self.divide_rewards_for_agents_geometric(geometric_modes=geometric_modes)
             r_geo_total_test = np.sum(r_geo_per_agent_test)
-            sr_le_geo_test = self.env.supervisor.target.get_strehl(1)[1]
+            sr_le_geo_test = self._safe_get_strehl(1)[1]
 
             geometric_performance = {"r_geo_per_agent_test": r_geo_per_agent_test,
                                      "r_geo_total_test": r_geo_total_test,
@@ -884,6 +1084,16 @@ class TrainerRPC:
 
             self.memorys_master[worker_id].push(state, action, reward, state_next, mask)
 
+            if self.offline_dataset_recorder:
+                self.offline_dataset_recorder.record_transition(
+                    worker_id,
+                    state,
+                    action,
+                    reward,
+                    state_next,
+                    done,
+                )
+
     def update_all_agents(self):
 
         worker_id = 1
@@ -959,10 +1169,16 @@ class SAC(object):
 
 
         self.lr = config.sac['lr']
-        hidden_size_critic = config.sac['hidden_size_critic']
-        num_layers_critic = config.sac['num_layers_critic']
-        hidden_size_actor = config.sac['hidden_size_actor']
-        num_layers_actor = config.sac['num_layers_actor']
+        def _resolve_hidden_size(value):
+            """MASAC KAN models expect scalar hidden dims; accept list/tuple by taking the first entry."""
+            if isinstance(value, (list, tuple)):
+                return int(value[0]) if value else 0
+            return int(value)
+
+        hidden_size_critic = _resolve_hidden_size(config.sac['hidden_size_critic'])
+        num_layers_critic = int(config.sac['num_layers_critic'])
+        hidden_size_actor = _resolve_hidden_size(config.sac['hidden_size_actor'])
+        num_layers_actor = int(config.sac['num_layers_actor'])
 
         self.total_update = 0
 
