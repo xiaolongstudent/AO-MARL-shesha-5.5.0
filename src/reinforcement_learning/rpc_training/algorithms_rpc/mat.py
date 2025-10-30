@@ -95,6 +95,191 @@ LOG_SIG_MAX = 2
 epsilon = 1e-5
 
 
+def _coerce_bool(value, default=False):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y"}
+    return default
+
+
+class DecisionTransformerFeatureEngineer:
+    """Build compact, collaboration-aware state embeddings for ODT."""
+
+    def __init__(self, raw_state_dim: int, action_dim: int, config):
+        self.raw_dim = int(raw_state_dim)
+        self.action_dim = int(action_dim)
+        sac_cfg = getattr(config, "sac", {})
+
+        feature_dim = sac_cfg.get("dt_feature_dim", self.raw_dim)
+        try:
+            feature_dim = int(feature_dim)
+        except (TypeError, ValueError):
+            feature_dim = self.raw_dim
+        self.output_dim = max(1, feature_dim)
+
+        use_residual = sac_cfg.get("dt_feature_use_residual", True)
+        self.use_residual = _coerce_bool(use_residual, True)
+        use_action_mean = sac_cfg.get("dt_feature_use_action_mean", True)
+        self.use_action_mean = _coerce_bool(use_action_mean, True)
+
+        normalize = sac_cfg.get("dt_feature_normalize", True)
+        self.normalize = _coerce_bool(normalize, True)
+
+        seed = sac_cfg.get("dt_feature_projection_seed", None)
+        try:
+            seed = int(seed) if seed is not None else None
+        except (TypeError, ValueError):
+            seed = None
+        if seed is None:
+            fallback_seed = getattr(config, "seed", None)
+            try:
+                seed = int(fallback_seed) if fallback_seed is not None else None
+            except (TypeError, ValueError):
+                seed = None
+        rng = np.random.default_rng(seed)
+
+        enriched_dim = self.raw_dim
+        if self.use_residual:
+            enriched_dim += self.raw_dim
+        if self.use_action_mean:
+            enriched_dim += self.action_dim
+
+        if self.output_dim == enriched_dim:
+            self._projection = np.eye(enriched_dim, dtype=np.float32)
+        else:
+            scale = 1.0 / math.sqrt(max(self.output_dim, 1))
+            self._projection = rng.standard_normal((self.output_dim, enriched_dim)).astype(np.float32)
+            self._projection *= float(scale)
+
+        self._running_mean = np.zeros(self.raw_dim, dtype=np.float32)
+        self._running_count = 0.0
+        self._last_action_mean = np.zeros(self.action_dim, dtype=np.float32)
+        self._eps = 1e-6
+
+    # ------------------------------------------------------------------
+    # Running statistics
+    # ------------------------------------------------------------------
+    def _align_state(self, state: np.ndarray) -> np.ndarray:
+        arr = np.asarray(state, dtype=np.float32).reshape(-1)
+        if arr.size < self.raw_dim:
+            pad = np.zeros(self.raw_dim, dtype=np.float32)
+            pad[: arr.size] = arr
+            return pad
+        if arr.size > self.raw_dim:
+            return arr[: self.raw_dim]
+        return arr
+
+    def observe_batch(self, states: np.ndarray) -> None:
+        if not self.use_residual:
+            return
+        if states is None:
+            return
+        arr = np.asarray(states, dtype=np.float32)
+        if arr.size == 0:
+            return
+        if arr.ndim == 1:
+            arr = arr.reshape(1, -1)
+        aligned = np.stack([self._align_state(row) for row in arr], axis=0)
+        batch_count = float(aligned.shape[0])
+        batch_mean = np.mean(aligned, axis=0)
+        total = self._running_count + batch_count
+        if total <= self._eps:
+            self._running_mean = batch_mean
+            self._running_count = batch_count
+            return
+        weight_prev = self._running_count / total
+        weight_new = batch_count / total
+        self._running_mean = (
+            weight_prev * self._running_mean + weight_new * batch_mean
+        ).astype(np.float32, copy=False)
+        self._running_count = total
+
+    def _prepare_features(
+        self,
+        state: np.ndarray,
+        action_mean: Optional[np.ndarray],
+    ) -> np.ndarray:
+        state = np.asarray(state, dtype=np.float32).reshape(-1)
+        components = [state]
+        if self.use_residual and state.size == self.raw_dim:
+            residual = state - self._running_mean
+            if self.normalize:
+                denom = np.linalg.norm(residual, ord=2) + self._eps
+                residual = residual / denom
+            components.append(residual.astype(np.float32, copy=False))
+        if self.use_action_mean and self.action_dim > 0:
+            if action_mean is None:
+                action_mean = self._last_action_mean
+            else:
+                action_mean = np.asarray(action_mean, dtype=np.float32).reshape(-1)
+                if action_mean.size != self.action_dim:
+                    action_mean = self._last_action_mean
+                else:
+                    self._last_action_mean = action_mean
+            components.append(action_mean.astype(np.float32, copy=False))
+        enriched = np.concatenate(components, axis=0)
+        return enriched
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+    def transform_state(
+        self,
+        state: np.ndarray,
+        *,
+        action_mean: Optional[np.ndarray] = None,
+        update_stats: bool = False,
+    ) -> np.ndarray:
+        aligned_state = self._align_state(state)
+        if update_stats:
+            self.observe_batch(aligned_state.reshape(1, -1))
+        enriched = self._prepare_features(aligned_state, action_mean)
+        projected = self._projection @ enriched
+        return projected.astype(np.float32, copy=False)
+
+    def transform_sequence(
+        self,
+        states: np.ndarray,
+        *,
+        action_sequence: Optional[np.ndarray] = None,
+        update_stats: bool = False,
+    ) -> np.ndarray:
+        arr = np.asarray(states, dtype=np.float32)
+        if arr.ndim == 1:
+            arr = arr.reshape(1, -1)
+        if arr.size == 0 or arr.shape[0] == 0:
+            return np.zeros((0, self.output_dim), dtype=np.float32)
+        if update_stats:
+            self.observe_batch(arr)
+        if action_sequence is not None:
+            actions = np.asarray(action_sequence, dtype=np.float32)
+            if actions.ndim == 1:
+                actions = actions.reshape(1, -1)
+            if actions.shape[-1] == self.action_dim:
+                action_mean = np.mean(actions, axis=0)
+            else:
+                action_mean = None
+        else:
+            action_mean = None
+        encoded = [
+            self.transform_state(state, action_mean=action_mean, update_stats=False)
+            for state in arr
+        ]
+        if not encoded:
+            return np.zeros((0, self.output_dim), dtype=np.float32)
+        return np.stack(encoded, axis=0)
+
+    @property
+    def projection_matrix(self) -> np.ndarray:
+        return self._projection
+
+
+
 class TransformerPolicy(nn.Module):
     """Simple transformer based policy used by MAT."""
 
@@ -667,6 +852,14 @@ class DecisionTransformer(MAT):
     def __init__(self, num_inputs, action_space, config, rank, num_gpus, model_dir=None):
         super().__init__(num_inputs, action_space, config, rank, num_gpus, model_dir=model_dir)
 
+        self.raw_state_dim = int(getattr(self, "state_dim", num_inputs))
+        self.feature_engineer = DecisionTransformerFeatureEngineer(
+            self.raw_state_dim,
+            self.action_dim,
+            config,
+        )
+        self.state_dim = self.feature_engineer.output_dim
+
         hidden_actor = config.sac['hidden_size_actor']
         layers_actor = config.sac['num_layers_actor']
         dropout = float(config.sac.get('transformer_dropout', 0.1))
@@ -684,7 +877,7 @@ class DecisionTransformer(MAT):
         ff_dim = max(hidden_actor, int(hidden_actor * ff_multiplier))
 
         self.policy = DecisionTransformerPolicy(
-            state_dim=num_inputs,
+            state_dim=self.state_dim,
             action_dim=self.action_dim,
             d_model=hidden_actor,
             nhead=nhead,
@@ -697,7 +890,7 @@ class DecisionTransformer(MAT):
 
         # Value network is not used for optimisation but kept for checkpoint
         # compatibility with MAT.
-        self.value = ValueNetwork(num_inputs, hidden_dims=config.sac['hidden_size_critic']).to(self.device)
+        self.value = ValueNetwork(self.state_dim, hidden_dims=config.sac['hidden_size_critic']).to(self.device)
         self.value_optim = Adam(self.value.parameters(), lr=config.sac['lr'])
 
         self.context_len = context_len
@@ -746,6 +939,18 @@ class DecisionTransformer(MAT):
         self.sequences_min_keep_recent = int(
             config.sac.get('dt_sequences_min_keep_recent', 0)
         )
+        self.bc_logprob_coef = float(config.sac.get('dt_bc_logprob_coef', 1.0))
+        if self.bc_logprob_coef < 0.0:
+            self.bc_logprob_coef = 0.0
+        self.bc_mse_coef = float(config.sac.get('dt_bc_mse_coef', 0.1))
+        if self.bc_mse_coef < 0.0:
+            self.bc_mse_coef = 0.0
+        self.bc_reg_coef = float(config.sac.get('dt_bc_reg_coef', 0.01))
+        if self.bc_reg_coef < 0.0:
+            self.bc_reg_coef = 0.0
+        self.offline_weight_gain = float(config.sac.get('dt_offline_weight_gain', 0.0))
+        if self.offline_weight_gain < 0.0:
+            self.offline_weight_gain = 0.0
         offline_patterns = []
         raw_pattern = config.sac.get('dt_offline_dataset_glob')
 
@@ -1104,7 +1309,7 @@ class DecisionTransformer(MAT):
         if states_np.ndim != 2:
             return episodes
         timestep = states_np.shape[0]
-        states_np = self._match_feature_dim(states_np, self.state_dim)
+        states_np = self._match_feature_dim(states_np, self.raw_state_dim)
 
         actions_np = np.asarray(actions)
         actions_np = np.nan_to_num(actions_np, nan=0.0, posinf=0.0, neginf=0.0)
@@ -1121,6 +1326,13 @@ class DecisionTransformer(MAT):
             actions_np = pad
         elif actions_np.shape[0] > timestep:
             actions_np = actions_np[:timestep]
+
+        self.feature_engineer.observe_batch(states_np)
+        encoded_states = self.feature_engineer.transform_sequence(
+            states_np,
+            action_sequence=actions_np,
+            update_stats=False,
+        )
 
         rewards_np = np.asarray(rewards, dtype=np.float32).reshape(-1)
         if rewards_np.size < timestep:
@@ -1156,7 +1368,7 @@ class DecisionTransformer(MAT):
         episode_id = f"{base_id}-{self._offline_episode_counter}"
         self._offline_episode_counter += 1
         episode = {
-            "states": states_np,
+            "states": encoded_states,
             "actions": actions_np,
             "rewards": rewards_np,
             "masks": masks_np,
@@ -1485,9 +1697,32 @@ class DecisionTransformer(MAT):
         batch_mask = torch.as_tensor(padding_mask, device=self.device).unsqueeze(0)
         return batch_states, batch_actions, batch_returns, batch_mask
 
+    def _context_action_mean(self) -> np.ndarray:
+        if not self.context_actions:
+            return np.zeros(self.action_dim, dtype=np.float32)
+        try:
+            stacked = np.asarray(self.context_actions, dtype=np.float32)
+            if stacked.ndim == 1:
+                stacked = stacked.reshape(1, -1)
+        except ValueError:
+            stacked = np.stack(
+                [np.asarray(action, dtype=np.float32).reshape(-1) for action in self.context_actions],
+                axis=0,
+            )
+        mean = np.mean(stacked, axis=0)
+        if mean.size != self.action_dim:
+            return np.zeros(self.action_dim, dtype=np.float32)
+        return mean.astype(np.float32, copy=False)
+
     def select_action(self, state, eval_mode=False):
         state = np.nan_to_num(state, nan=0.0, posinf=1e6, neginf=-1e6).astype(np.float32)
-        self.context_states.append(state)
+        action_mean = self._context_action_mean()
+        encoded_state = self.feature_engineer.transform_state(
+            state,
+            action_mean=action_mean,
+            update_stats=True,
+        )
+        self.context_states.append(encoded_state)
         self.context_returns.append(self.current_return * self.return_scale)
         if len(self.context_states) > self.context_len:
             self.context_states.pop(0)
@@ -1535,16 +1770,24 @@ class DecisionTransformer(MAT):
         rewards_np = np.nan_to_num(np.array(rewards, dtype=np.float32), nan=0.0, posinf=1e6, neginf=-1e6)
         masks_np = np.nan_to_num(np.array(masks, dtype=np.float32), nan=0.0, posinf=1.0, neginf=0.0)
 
+        self.feature_engineer.observe_batch(states_np)
+        encoded_states_np = self.feature_engineer.transform_sequence(
+            states_np,
+            action_sequence=actions_np,
+            update_stats=False,
+        )
+
         episode_id = self._dt_episode_counter
         self._dt_episode_counter += 1
         avg_strehl = float(getattr(self, "_last_episode_avg_strehl", 0.0))
         episode = {
-            "states": states_np,
+            "states": encoded_states_np,
             "actions": actions_np,
             "rewards": rewards_np,
             "masks": masks_np,
             "episode_id": episode_id,
             "avg_strehl": avg_strehl,
+            "is_offline": False,
         }
         quality_reward = float(np.sum(rewards_np))
         quality_metric = quality_reward + self.strehl_quality_weight * avg_strehl
@@ -1562,6 +1805,7 @@ class DecisionTransformer(MAT):
         targets = []
         sequence_quality = []
         sequence_recent = []
+        sequence_offline = []
 
         episodes_iterable = []
         seen_ids = set()
@@ -1666,6 +1910,7 @@ class DecisionTransformer(MAT):
                 targets.append(actions_ep[idx])
                 sequence_quality.append(returns_raw[idx])
                 sequence_recent.append(1.0 if is_recent else 0.0)
+                sequence_offline.append(1.0 if stored.get("is_offline") else 0.0)
 
         if not sequences_states:
             return
@@ -1703,6 +1948,7 @@ class DecisionTransformer(MAT):
             targets = [targets[i] for i in selected_indices]
             sequence_quality = [sequence_quality[i] for i in selected_indices]
             sequence_recent = [sequence_recent[i] for i in selected_indices]
+            sequence_offline = [sequence_offline[i] for i in selected_indices]
 
         state_array = np.stack(sequences_states)
         action_array = np.stack(sequences_actions)
@@ -1711,6 +1957,7 @@ class DecisionTransformer(MAT):
         target_array = np.stack(targets)
         quality_array = np.asarray(sequence_quality, dtype=np.float32)
         recent_array = np.asarray(sequence_recent, dtype=np.float32)
+        offline_array = np.asarray(sequence_offline, dtype=np.float32)
 
         if self.normalize_returns:
             valid = ~mask_array
@@ -1735,6 +1982,7 @@ class DecisionTransformer(MAT):
         target_tensor = self._sanitize_tensor(target_tensor, -0.999, 0.999)
         quality_tensor = torch.as_tensor(quality_array, device=self.device)
         recent_tensor = torch.as_tensor(recent_array, device=self.device)
+        offline_tensor = torch.as_tensor(offline_array, device=self.device)
 
         dataset_size = state_tensor.size(0)
         if dataset_size == 0:
@@ -1788,6 +2036,12 @@ class DecisionTransformer(MAT):
         else:
             weight_tensor = torch.ones_like(quality_tensor)
 
+        if self.offline_weight_gain > 0.0 and torch.any(offline_tensor > 0):
+            offline_boost = 1.0 + self.offline_weight_gain * offline_tensor
+            weight_tensor = weight_tensor * offline_boost
+            weight_tensor = torch.nan_to_num(weight_tensor, nan=1.0, posinf=10.0, neginf=0.0)
+            weight_tensor = weight_tensor.clamp(min=1e-3)
+
         for _ in range(self.updates_per_episode):
             permutation = torch.randperm(dataset_size, device=self.device)
             for start in range(0, dataset_size, batch_size):
@@ -1809,8 +2063,33 @@ class DecisionTransformer(MAT):
                 pred_action = torch.tanh(mean) * self.action_scale
                 mse_elements = (pred_action - target_batch).pow(2)
                 mse_loss = (mse_elements * weight_batch).mean()
-                reg = 0.01 * log_std.pow(2).mean()
-                total_loss = mse_loss + reg
+                if self.action_scale != 0.0:
+                    scale_den = float(abs(self.action_scale))
+                else:
+                    scale_den = 1.0
+                target_scaled = torch.clamp(
+                    target_batch / scale_den,
+                    min=-0.999,
+                    max=0.999,
+                )
+                target_pre_tanh = 0.5 * (
+                    torch.log1p(target_scaled) - torch.log1p(-target_scaled)
+                )
+                std = log_std.exp().clamp(min=1e-6, max=1e6)
+                normal = Normal(mean, std)
+                log_prob = normal.log_prob(target_pre_tanh) - torch.log(
+                    1 - target_scaled.pow(2) + epsilon
+                )
+                log_prob = log_prob.sum(-1, keepdim=True)
+                nll = -(log_prob)
+                nll_loss = (nll * weight_batch).mean()
+
+                reg = self.bc_reg_coef * log_std.pow(2).mean()
+                total_loss = (
+                    self.bc_logprob_coef * nll_loss
+                    + self.bc_mse_coef * mse_loss
+                    + reg
+                )
 
                 if not torch.isfinite(total_loss):
                     continue
@@ -1821,8 +2100,11 @@ class DecisionTransformer(MAT):
                     clip_grad_norm_(self.policy.parameters(), self.gradient_clip_norm)
                 self.policy_optim.step()
 
-                policy_loss_acc += float(mse_loss.item())
-                entropy_acc += float((log_std.exp().clamp(min=1e-6)).mean().item())
+                policy_loss_acc += float(total_loss.item())
+                entropy_components = 0.5 * (math.log(2 * math.pi * math.e)) + log_std
+                entropy_batch = entropy_components.sum(dim=-1, keepdim=True)
+                entropy_weighted = (entropy_batch * weight_batch).mean()
+                entropy_acc += float(entropy_weighted.item())
                 updates += 1
 
         if updates:

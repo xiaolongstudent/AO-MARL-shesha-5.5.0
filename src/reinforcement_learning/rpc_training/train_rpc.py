@@ -998,18 +998,18 @@ class TrainerRPC:
             # An episode of the environment
             r_total = self.episode()
 
-            if self.num_episode % 10 == 0:
-                sr_values = self._safe_get_strehl()
+            sr_values = self._safe_get_strehl()
+            if len(sr_values) > 1:
                 self.writer_performance.add_scalar(
                     "Training_Reward/Evolution of SR LE",
                     sr_values[1],
                     self.num_episode,
                 )
-                self.writer_performance.add_scalar(
-                    "Training_Reward/Average Reward of last 10 episodes",
-                    r_total,
-                    self.num_episode,
-                )
+            self.writer_performance.add_scalar(
+                "Training_Reward/Average Reward of last 10 episodes",
+                r_total,
+                self.num_episode,
+            )
 
             if (self.config_rl.env_rl['change_atmospheric_3_layers_1'] or
                 self.config_rl.env_rl['change_atmospheric_3_layers_2'] or
