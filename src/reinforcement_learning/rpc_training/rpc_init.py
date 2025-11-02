@@ -27,16 +27,14 @@ def initialize_master_worker_paradigm(rank,
     if rank == 0:
 
         # from src.reinforcement_learning.rpc_training.train_rpc_kan import TrainerRPC
-        from src.reinforcement_learning.rpc_training.train_rpc import TrainerRPC
-
-        # config = Config()
-
-        # b) Modify config file (it is easier to input them on args if you want to do multiple experiments)
-        # args = obtain_args(config)
-
         experiment_name = args.experiment_name
         seed = args.seed
         config.update_conf_with_args(args)
+
+        if config.algorithm.upper() == "IQL":
+            from src.reinforcement_learning.rpc_training.train_rpc_iql import TrainerRPCIQL as TrainerCls
+        else:
+            from src.reinforcement_learning.rpc_training.train_rpc import TrainerRPC as TrainerCls
 
         # e) Set up the initial seed
         torch.manual_seed(args.seed)
@@ -51,11 +49,11 @@ def initialize_master_worker_paradigm(rank,
         writer_metrics_1 = SummaryWriter('outputgain_0.4_noice3_layer3_GM4_para0.16_train0.16_no_auencoder_worker4_hidden32_criticpolicy_kan_test/runs/metrics_1/metrics_' + experiment_name)
 
         rpc.init_rpc(MASTER_NAME, rank=rank, world_size=world_size)
-        trainer = TrainerRPC(config_rl=config,
+        trainer = TrainerCls(config_rl=config,
                              writer_performance=writer_performance,
                              writer_metrics_1=writer_metrics_1,
                              seed=seed,
-                                 experiment_name=experiment_name,
+                             experiment_name=experiment_name,
                              world_size=world_size,
                              num_gpus=args.num_gpus)
 
