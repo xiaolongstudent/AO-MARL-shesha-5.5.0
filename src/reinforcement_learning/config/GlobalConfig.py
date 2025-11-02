@@ -71,6 +71,15 @@ class Config:
         self.sac['l2_norm_policy'] = -1
         self.sac['LOG_SIG_MAX'] = 2.0
         self.sac['updates_per_episode_rpc'] = 1000
+        self.sac['expectile'] = float(config_sac.get('expectile', 0.7))
+        self.sac['awac_temperature'] = float(config_sac.get('awac_temperature', 1.0))
+        self.sac['awac_lambda'] = float(config_sac.get('awac_lambda', 1.0))
+        self.sac['adv_max_weight'] = float(config_sac.get('adv_max_weight', 100.0))
+        self.sac['offline_phase_episodes'] = int(config_sac.get('offline_phase_episodes', 0))
+        self.sac['offline_updates_per_call'] = int(config_sac.get('offline_updates_per_call',
+                                                                  self.sac['updates_per_episode_rpc']))
+        self.sac['value_target_tau'] = float(config_sac.get('value_target_tau', self.sac['tau']))
+        self.sac['offline_replay_path'] = str(config_sac.get('offline_replay_path', 'None'))
 
         # 2) Environment Reinforcement Learning Config
 
@@ -172,8 +181,10 @@ class Config:
         Updates config object with the arguments
         """
 
-        if args.algorithm == "SAC":
+        if args.algorithm.upper() == "SAC":
             self.update_sac(args)
+        elif args.algorithm.upper() == "IQL":
+            self.update_iql(args)
         else:
             raise NotImplementedError
 
@@ -223,6 +234,19 @@ class Config:
         self.sac['pretrained_replay_path'] = args.pretrained_replay_path
         self.sac['pretrained_model_path'] = None if args.pretrained_model_path == "None" else args.pretrained_model_path
         self.sac['replay_path'] = args.replay_path if args.replay_path is not None else None
+
+        self.sac['expectile'] = float(getattr(args, 'expectile', self.sac['expectile']))
+        self.sac['awac_temperature'] = float(getattr(args, 'awac_temperature', self.sac['awac_temperature']))
+        self.sac['awac_lambda'] = float(getattr(args, 'awac_lambda', self.sac['awac_lambda']))
+        self.sac['adv_max_weight'] = float(getattr(args, 'adv_max_weight', self.sac['adv_max_weight']))
+        self.sac['offline_phase_episodes'] = int(getattr(args, 'offline_phase_episodes', self.sac['offline_phase_episodes']))
+        self.sac['offline_updates_per_call'] = int(getattr(args, 'offline_updates_per_call',
+                                                           self.sac['offline_updates_per_call']))
+        self.sac['value_target_tau'] = float(getattr(args, 'value_target_tau', self.sac['value_target_tau']))
+        self.sac['offline_replay_path'] = getattr(args, 'offline_replay_path', self.sac['offline_replay_path'])
+
+    def update_iql(self, args):
+        self.update_sac(args)
 
     def update_env(self, args):
 
