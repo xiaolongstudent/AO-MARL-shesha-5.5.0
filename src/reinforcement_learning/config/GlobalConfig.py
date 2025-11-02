@@ -232,7 +232,7 @@ class Config:
         )
         self.sac['dt_sequence_stride'] = max(1, int(config_sac.get('dt_sequence_stride', "1")))
         self.sac['dt_loss_temperature'] = float(config_sac.get('dt_loss_temperature', "1.0"))
-        self.sac['dt_recent_weight'] = float(config_sac.get('dt_recent_weight', "0.3"))
+        self.sac['dt_recent_weight'] = float(config_sac.get('dt_recent_weight', "0.45"))
         dt_normalize_returns = config_sac.get('dt_normalize_returns', "True")
         if isinstance(dt_normalize_returns, str):
             dt_normalize_returns = dt_normalize_returns.lower() == "true"
@@ -248,6 +248,32 @@ class Config:
         )
         self.sac['dt_sequences_min_keep_recent'] = max(
             0, int(config_sac.get('dt_sequences_min_keep_recent', "32"))
+        )
+        replay_offline_ratio = float(
+            config_sac.get('dt_replay_offline_ratio', "0.2")
+        )
+        replay_recent_ratio = float(
+            config_sac.get('dt_replay_recent_ratio', "0.1")
+        )
+        self.sac['dt_replay_offline_ratio'] = replay_offline_ratio
+        self.sac['dt_replay_recent_ratio'] = replay_recent_ratio
+        self.sac['dt_replay_recent_ratio_cap'] = float(
+            config_sac.get('dt_replay_recent_ratio_cap', "0.2")
+        )
+        self.sac['dt_replay_online_top_percentile'] = float(
+            config_sac.get('dt_replay_online_top_percentile', "0.2")
+        )
+        self.sac['dt_online_keep_percentile'] = float(
+            config_sac.get('dt_online_keep_percentile', "0.7")
+        )
+        self.sac['dt_online_keep_min_samples'] = max(
+            1, int(config_sac.get('dt_online_keep_min_samples', "32"))
+        )
+        self.sac['dt_online_history_limit'] = int(
+            config_sac.get('dt_online_history_limit', "2048")
+        )
+        self.sac['dt_low_weight_maxlen'] = int(
+            config_sac.get('dt_low_weight_maxlen', "128")
         )
         updates_override = config_sac.get('dt_updates_per_episode', None)
         if updates_override is None:
@@ -271,6 +297,30 @@ class Config:
         )
         self.sac['dt_offline_mix_ratio_warmup'] = max(
             0, int(config_sac.get('dt_offline_mix_ratio_warmup', "0"))
+        )
+        self.sac['dt_offline_lock_ratio'] = float(
+            config_sac.get('dt_offline_lock_ratio', "0.6")
+        )
+        self.sac['dt_offline_lock_updates'] = max(
+            0, int(config_sac.get('dt_offline_lock_updates', "2000"))
+        )
+        self.sac['dt_offline_final_ratio'] = float(
+            config_sac.get('dt_offline_final_ratio', "0.2")
+        )
+        self.sac['dt_offline_decay_updates'] = max(
+            1, int(config_sac.get('dt_offline_decay_updates', "4000"))
+        )
+        self.sac['dt_offline_improvement_window'] = max(
+            1, int(config_sac.get('dt_offline_improvement_window', "256"))
+        )
+        self.sac['dt_offline_improvement_threshold'] = max(
+            0.0, float(config_sac.get('dt_offline_improvement_threshold', "0.08"))
+        )
+        self.sac['dt_offline_improvement_min_delta'] = float(
+            config_sac.get('dt_offline_improvement_min_delta', "50.0")
+        )
+        self.sac['dt_offline_improvement_patience'] = max(
+            1, int(config_sac.get('dt_offline_improvement_patience', "3"))
         )
         self.sac['dt_offline_max_episodes'] = int(config_sac.get('dt_offline_max_episodes', "0"))
         keep_ratio = float(config_sac.get('dt_offline_keep_top_ratio', "0.0"))
