@@ -1085,6 +1085,12 @@ class TrainerRPC:
 
             # 2. Step on the environment
             s_next, reward_divided, done = self.env_step(a)
+            residual_action = getattr(self.env, "last_residual_action", None)
+            if residual_action is not None:
+                a = np.asarray(residual_action, dtype=np.float32)
+                a_divided = self._split_action_by_agent(a)
+                self.current_action = a
+                self.current_action_divided = a_divided
 
             # 3. Divided states for agents
             s_next_divided = self.divide_states_for_agents(s_next)
@@ -1251,6 +1257,22 @@ class TrainerRPC:
             bottom_mode = agent_value_0 - self.starting_mode
             top_mode = agent_value_1 - self.starting_mode
         return bottom_mode, top_mode
+
+    def _split_action_by_agent(self, action_vector):
+        action_array = np.asarray(action_vector, dtype=np.float32)
+        divided = {}
+        for worker_id in range(1, self.world_size):
+            agent_value = self.dictionary_agents[worker_id]
+            bottom_mode_for_array, top_mode_for_array = self.select_correct_modes_for_array(
+                agent_value[0], agent_value[1]
+            )
+            bottom_idx = int(bottom_mode_for_array)
+            top_idx = int(top_mode_for_array)
+            if top_idx > bottom_idx:
+                divided[worker_id] = action_array[bottom_idx:top_idx].copy()
+            else:
+                divided[worker_id] = np.zeros(0, dtype=np.float32)
+        return divided
 
     def report_action(self, a, mu, worker_id):
 
