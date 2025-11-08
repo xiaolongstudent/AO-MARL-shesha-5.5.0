@@ -216,6 +216,12 @@ class Config:
         self.sac['dt_strehl_momentum'] = float(
             config_sac.get('dt_strehl_momentum', self.sac['dt_target_momentum'])
         )
+        self.sac['dt_online_gain'] = float(config_sac.get('dt_online_gain', "1.0"))
+        self.sac['dt_online_gain_min'] = float(config_sac.get('dt_online_gain_min', "1.0"))
+        self.sac['dt_online_gain_max'] = float(config_sac.get('dt_online_gain_max', "1.5"))
+        self.sac['dt_online_gain_quantile'] = float(
+            config_sac.get('dt_online_gain_quantile', "0.8")
+        )
         self.sac['dt_target_offset'] = float(config_sac.get('dt_target_offset', "0.0"))
         self.sac['dt_target_gain'] = float(config_sac.get('dt_target_gain', "0.0"))
         self.sac['dt_target_min'] = float(config_sac.get('dt_target_min', "0.0"))
@@ -284,6 +290,36 @@ class Config:
                 self.sac['dt_updates_per_episode'] = None
             else:
                 self.sac['dt_updates_per_episode'] = max(1, int(float(updates_str)))
+        target_entropy_scale_raw = config_sac.get('target_entropy_scale', "1.0")
+        try:
+            self.sac['target_entropy_scale'] = float(target_entropy_scale_raw)
+        except (TypeError, ValueError):
+            self.sac['target_entropy_scale'] = 1.0
+        target_entropy_offset_raw = config_sac.get('target_entropy_offset', "0.0")
+        try:
+            self.sac['target_entropy_offset'] = float(target_entropy_offset_raw)
+        except (TypeError, ValueError):
+            self.sac['target_entropy_offset'] = 0.0
+        alpha_clip_min_raw = config_sac.get('alpha_clip_min')
+        if isinstance(alpha_clip_min_raw, str) and alpha_clip_min_raw.strip().lower() in {"", "none"}:
+            alpha_clip_min = None
+        else:
+            try:
+                alpha_clip_min = float(alpha_clip_min_raw)
+            except (TypeError, ValueError):
+                alpha_clip_min = None
+        alpha_clip_max_raw = config_sac.get('alpha_clip_max')
+        if isinstance(alpha_clip_max_raw, str) and alpha_clip_max_raw.strip().lower() in {"", "none"}:
+            alpha_clip_max = None
+        else:
+            try:
+                alpha_clip_max = float(alpha_clip_max_raw)
+            except (TypeError, ValueError):
+                alpha_clip_max = None
+        if alpha_clip_min is not None and alpha_clip_max is not None and alpha_clip_min > alpha_clip_max:
+            alpha_clip_min, alpha_clip_max = alpha_clip_max, alpha_clip_min
+        self.sac['alpha_clip_min'] = alpha_clip_min
+        self.sac['alpha_clip_max'] = alpha_clip_max
         self.sac['dt_offline_dataset_glob'] = config_sac.get('dt_offline_dataset_glob', None)
         self.sac['dt_offline_mix_ratio'] = float(config_sac.get('dt_offline_mix_ratio', "0.0"))
         self.sac['dt_offline_mix_ratio_start'] = float(

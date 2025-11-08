@@ -917,6 +917,25 @@ class DecisionTransformer(MAT):
         self.target_momentum = min(max(self.target_momentum, 0.0), 1.0)
         self.strehl_momentum = float(config.sac.get('dt_strehl_momentum', self.target_momentum))
         self.strehl_momentum = min(max(self.strehl_momentum, 0.0), 1.0)
+        self.online_gain = float(config.sac.get('dt_online_gain', 1.0))
+        self.online_gain_min = float(config.sac.get('dt_online_gain_min', 1.0))
+        self.online_gain_max = float(config.sac.get('dt_online_gain_max', 1.5))
+        self.online_gain_quantile = float(config.sac.get('dt_online_gain_quantile', 0.8))
+        if not np.isfinite(self.online_gain_min):
+            self.online_gain_min = 1.0
+        if not np.isfinite(self.online_gain_max):
+            self.online_gain_max = 1.5
+        self.online_gain_max = min(self.online_gain_max, 1.5)
+        if self.online_gain_min < 0.0:
+            self.online_gain_min = 0.0
+        if self.online_gain_min > self.online_gain_max:
+            self.online_gain_min = self.online_gain_max
+        if not np.isfinite(self.online_gain) or self.online_gain <= 0.0:
+            self.online_gain = max(self.online_gain_min, 1.0)
+        self.online_gain = min(max(self.online_gain, self.online_gain_min), self.online_gain_max)
+        if not np.isfinite(self.online_gain_quantile):
+            self.online_gain_quantile = 0.8
+        self.online_gain_quantile = min(max(self.online_gain_quantile, 0.0), 1.0)
         self.target_offset = float(config.sac.get('dt_target_offset', 0.0))
         self.target_gain = float(config.sac.get('dt_target_gain', 0.0))
         self.target_min = float(config.sac.get('dt_target_min', 0.0))
@@ -989,6 +1008,9 @@ class DecisionTransformer(MAT):
         self._offline_decay_triggered = False
         self._offline_decay_trigger_update: Optional[int] = None
         self._total_update_counter = 0
+        self._offline_return_baseline: Optional[float] = None
+        self._target_return_floor: Optional[float] = None
+        self._target_return_ceiling: Optional[float] = None
         low_weight_maxlen = int(config.sac.get('dt_low_weight_maxlen', max(self.recent_window, 32)))
         if low_weight_maxlen <= 0:
             low_weight_maxlen = self.recent_window
@@ -1202,6 +1224,7 @@ class DecisionTransformer(MAT):
                             json.dump(summary, fh, indent=2)
                     except OSError:
                         pass
+                self._update_target_bounds_from_summary(summary)
         else:
             print(
                 "[DecisionTransformer] No offline dataset found. Set dt_offline_dataset_glob or "
@@ -1771,6 +1794,13 @@ class DecisionTransformer(MAT):
         # Update the stats cache so downstream summaries reflect the filtered set.
         self._offline_stats = kept_stats
         self._refresh_offline_pools(kept)
+        if kept_stats:
+            summary = summarize_dataset(kept_stats)
+            self._offline_summary = summary
+            self._update_target_bounds_from_summary(summary)
+        else:
+            self._offline_summary = None
+            self._update_target_bounds_from_summary(None)
         return kept, dropped, min_return, min_strehl
 
     def _refresh_offline_pools(self, episodes):
@@ -1798,6 +1828,95 @@ class DecisionTransformer(MAT):
 
         self._offline_elite = elite
         self._offline_reserve = reserve
+
+    def _update_target_bounds_from_summary(self, summary: Optional[dict]) -> None:
+        """Clamp online targets to stay close to the offline expert distribution."""
+
+        self._target_return_floor = None
+        self._target_return_ceiling = None
+        self._offline_return_baseline = None
+
+        if not summary:
+            return
+
+        baseline = None
+        quantiles = summary.get("q") if isinstance(summary, dict) else None
+        if isinstance(quantiles, dict) and quantiles:
+            key = f"{self.online_gain_quantile:.2f}"
+            if key in quantiles:
+                baseline = quantiles[key]
+            else:
+                try:
+                    parsed = {float(k): float(v) for k, v in quantiles.items()}
+                    nearest = min(parsed, key=lambda q: abs(q - self.online_gain_quantile))
+                    baseline = parsed[nearest]
+                except (ValueError, TypeError):
+                    baseline = None
+        if baseline is None:
+            baseline = summary.get("ret_mean") if isinstance(summary, dict) else None
+        try:
+            baseline = float(baseline)
+        except (TypeError, ValueError):
+            baseline = None
+        if baseline is None or not np.isfinite(baseline):
+            return
+
+        self._offline_return_baseline = baseline
+        magnitude = abs(baseline)
+        floor_mag = magnitude * self.online_gain_min
+        ceil_mag = magnitude * self.online_gain_max
+        desired_mag = magnitude * self.online_gain
+
+        if baseline >= 0.0:
+            floor_value = floor_mag
+            ceiling_value = ceil_mag
+            desired_value = desired_mag
+        else:
+            floor_value = -ceil_mag
+            ceiling_value = -floor_mag
+            if floor_value > ceiling_value:
+                floor_value, ceiling_value = ceiling_value, floor_value
+            desired_value = -desired_mag
+
+        if np.isfinite(floor_value):
+            self._target_return_floor = floor_value
+        if np.isfinite(ceiling_value):
+            self._target_return_ceiling = ceiling_value
+
+        if np.isfinite(desired_value):
+            if self._target_return_floor is not None:
+                desired_value = max(desired_value, self._target_return_floor)
+            if self._target_return_ceiling is not None:
+                desired_value = min(desired_value, self._target_return_ceiling)
+            self.target_return = desired_value
+
+        if self._target_return_floor is not None:
+            self.target_return = max(self.target_return, self._target_return_floor)
+        if self._target_return_ceiling is not None:
+            self.target_return = min(self.target_return, self._target_return_ceiling)
+
+        self.current_return = self.target_return
+        if self.return_floor_ratio > 0.0 and self.target_return > 0.0:
+            floor_ratio = self.return_floor_ratio * self.target_return
+            if self.current_return < floor_ratio:
+                self.current_return = floor_ratio
+        if self.return_clip > 0.0:
+            self.current_return = float(
+                np.clip(self.current_return, -self.return_clip, self.return_clip)
+            )
+
+        try:
+            print(
+                "[DecisionTransformer] Online target baseline {:.3f} -> target {:.3f} "
+                "(limits {:.3f}..{:.3f})".format(
+                    baseline,
+                    self.target_return,
+                    self._target_return_floor if self._target_return_floor is not None else float("nan"),
+                    self._target_return_ceiling if self._target_return_ceiling is not None else float("nan"),
+                )
+            )
+        except Exception:
+            pass
 
     def _scheduled_offline_ratio(self) -> float:
         if self.offline_lock_ratio <= 0.0:
@@ -1933,6 +2052,10 @@ class DecisionTransformer(MAT):
                 candidate = max(candidate, target_from_goal)
             if self.target_min is not None:
                 candidate = max(candidate, self.target_min)
+            if self._target_return_floor is not None:
+                candidate = max(candidate, self._target_return_floor)
+            if self._target_return_ceiling is not None:
+                candidate = min(candidate, self._target_return_ceiling)
 
             self.target_return = candidate
             self.current_return = self.target_return
@@ -2190,6 +2313,10 @@ class DecisionTransformer(MAT):
             returns_scaled = returns_ep * self.return_scale
             if self.return_clip > 0.0:
                 returns_scaled = np.clip(returns_scaled, -self.return_clip, self.return_clip)
+
+            if not is_offline:
+                stored['hindsight_returns'] = returns_raw.astype(np.float32, copy=False)
+                stored['hindsight_returns_scaled'] = returns_scaled.astype(np.float32, copy=False)
 
             horizon = len(states_ep)
             for idx in range(0, horizon, self.sequence_stride):
