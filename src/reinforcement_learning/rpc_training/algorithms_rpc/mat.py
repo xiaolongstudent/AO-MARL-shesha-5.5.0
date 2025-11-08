@@ -917,6 +917,25 @@ class DecisionTransformer(MAT):
         self.target_momentum = min(max(self.target_momentum, 0.0), 1.0)
         self.strehl_momentum = float(config.sac.get('dt_strehl_momentum', self.target_momentum))
         self.strehl_momentum = min(max(self.strehl_momentum, 0.0), 1.0)
+        self.online_gain = float(config.sac.get('dt_online_gain', 1.0))
+        self.online_gain_min = float(config.sac.get('dt_online_gain_min', 1.0))
+        self.online_gain_max = float(config.sac.get('dt_online_gain_max', 1.5))
+        self.online_gain_quantile = float(config.sac.get('dt_online_gain_quantile', 0.8))
+        if not np.isfinite(self.online_gain_min):
+            self.online_gain_min = 1.0
+        if not np.isfinite(self.online_gain_max):
+            self.online_gain_max = 1.5
+        self.online_gain_max = min(self.online_gain_max, 1.5)
+        if self.online_gain_min < 0.0:
+            self.online_gain_min = 0.0
+        if self.online_gain_min > self.online_gain_max:
+            self.online_gain_min = self.online_gain_max
+        if not np.isfinite(self.online_gain) or self.online_gain <= 0.0:
+            self.online_gain = max(self.online_gain_min, 1.0)
+        self.online_gain = min(max(self.online_gain, self.online_gain_min), self.online_gain_max)
+        if not np.isfinite(self.online_gain_quantile):
+            self.online_gain_quantile = 0.8
+        self.online_gain_quantile = min(max(self.online_gain_quantile, 0.0), 1.0)
         self.target_offset = float(config.sac.get('dt_target_offset', 0.0))
         self.target_gain = float(config.sac.get('dt_target_gain', 0.0))
         self.target_min = float(config.sac.get('dt_target_min', 0.0))
@@ -939,6 +958,63 @@ class DecisionTransformer(MAT):
         self.sequences_min_keep_recent = int(
             config.sac.get('dt_sequences_min_keep_recent', 0)
         )
+        def _clamp_unit(value: float) -> float:
+            return min(max(float(value), 0.0), 1.0)
+
+        offline_ratio_cfg = _clamp_unit(
+            float(config.sac.get('dt_replay_offline_ratio', 0.5))
+        )
+        recent_ratio_cfg = _clamp_unit(
+            float(config.sac.get('dt_replay_recent_ratio', 0.2))
+        )
+        recent_ratio_cap = _clamp_unit(
+            float(config.sac.get('dt_replay_recent_ratio_cap', recent_ratio_cfg))
+        )
+        if recent_ratio_cap > 0.0:
+            recent_ratio_cfg = min(recent_ratio_cfg, recent_ratio_cap)
+        if offline_ratio_cfg + recent_ratio_cfg > 1.0:
+            total = offline_ratio_cfg + recent_ratio_cfg
+            offline_ratio_cfg = offline_ratio_cfg / total
+            recent_ratio_cfg = recent_ratio_cfg / total
+        self.replay_offline_ratio = offline_ratio_cfg
+        self.replay_recent_ratio = recent_ratio_cfg
+        self.replay_recent_ratio_cap = recent_ratio_cap
+        if (
+            self.sequences_topk > 0
+            and self.sequences_min_keep_recent > 0
+            and self.replay_recent_ratio_cap > 0.0
+        ):
+            max_recent_allowed = int(
+                math.floor(self.sequences_topk * self.replay_recent_ratio_cap)
+            )
+            if max_recent_allowed > 0:
+                self.sequences_min_keep_recent = min(
+                    self.sequences_min_keep_recent, max_recent_allowed
+                )
+        self.replay_online_top_percentile = _clamp_unit(
+            float(config.sac.get('dt_replay_online_top_percentile', 0.2))
+        )
+        self.online_keep_percentile = _clamp_unit(
+            float(config.sac.get('dt_online_keep_percentile', 0.7))
+        )
+        self.online_keep_min_samples = max(
+            1, int(config.sac.get('dt_online_keep_min_samples', 32))
+        )
+        history_limit_cfg = int(config.sac.get('dt_online_history_limit', 2048))
+        self._online_history_limit = history_limit_cfg if history_limit_cfg > 0 else None
+        self._online_return_history: list[float] = []
+        self._offline_improvement_baseline: Optional[float] = None
+        self._offline_improvement_votes = 0
+        self._offline_decay_triggered = False
+        self._offline_decay_trigger_update: Optional[int] = None
+        self._total_update_counter = 0
+        self._offline_return_baseline: Optional[float] = None
+        self._target_return_floor: Optional[float] = None
+        self._target_return_ceiling: Optional[float] = None
+        low_weight_maxlen = int(config.sac.get('dt_low_weight_maxlen', max(self.recent_window, 32)))
+        if low_weight_maxlen <= 0:
+            low_weight_maxlen = self.recent_window
+        self._low_weight_episodes: deque = deque(maxlen=low_weight_maxlen)
         self.bc_logprob_coef = float(config.sac.get('dt_bc_logprob_coef', 1.0))
         if self.bc_logprob_coef < 0.0:
             self.bc_logprob_coef = 0.0
@@ -1021,6 +1097,32 @@ class DecisionTransformer(MAT):
         )
         self.offline_mix_ratio_warmup = max(
             0, int(config.sac.get('dt_offline_mix_ratio_warmup', 0))
+        )
+        self.offline_lock_ratio = _clamp_unit(
+            float(config.sac.get('dt_offline_lock_ratio', self.offline_mix_ratio_start))
+        )
+        self.offline_final_ratio = _clamp_unit(
+            float(config.sac.get('dt_offline_final_ratio', self.offline_mix_ratio_final))
+        )
+        if self.offline_final_ratio > self.offline_lock_ratio:
+            self.offline_final_ratio = self.offline_lock_ratio
+        self.offline_lock_updates = max(
+            0, int(config.sac.get('dt_offline_lock_updates', 0))
+        )
+        self.offline_decay_updates = max(
+            1, int(config.sac.get('dt_offline_decay_updates', 1))
+        )
+        self.offline_improvement_window = max(
+            1, int(config.sac.get('dt_offline_improvement_window', 128))
+        )
+        self.offline_improvement_threshold = max(
+            0.0, float(config.sac.get('dt_offline_improvement_threshold', 0.05))
+        )
+        self.offline_improvement_min_delta = max(
+            0.0, float(config.sac.get('dt_offline_improvement_min_delta', 0.0))
+        )
+        self.offline_improvement_patience = max(
+            1, int(config.sac.get('dt_offline_improvement_patience', 1))
         )
         self.offline_max_episodes = max(0, int(config.sac.get('dt_offline_max_episodes', 0)))
         self.offline_keep_top_ratio = float(config.sac.get('dt_offline_keep_top_ratio', 0.0))
@@ -1122,6 +1224,7 @@ class DecisionTransformer(MAT):
                             json.dump(summary, fh, indent=2)
                     except OSError:
                         pass
+                self._update_target_bounds_from_summary(summary)
         else:
             print(
                 "[DecisionTransformer] No offline dataset found. Set dt_offline_dataset_glob or "
@@ -1202,6 +1305,175 @@ class DecisionTransformer(MAT):
         if len(filtered) > capacity:
             del filtered[capacity:]
         store[:] = filtered
+
+    def _record_online_return(self, value: float) -> None:
+        if not np.isfinite(value):
+            return
+        self._online_return_history.append(float(value))
+        limit = self._online_history_limit
+        if limit is not None and len(self._online_return_history) > limit:
+            excess = len(self._online_return_history) - limit
+            if excess > 0:
+                del self._online_return_history[:excess]
+        self._maybe_update_offline_decay()
+
+    def _compute_online_quantile(self, quantile: float, default: float = float("-inf")) -> float:
+        data = self._online_return_history
+        if not data:
+            return default
+        q = min(max(float(quantile), 0.0), 1.0)
+        try:
+            return float(np.quantile(np.asarray(data, dtype=np.float64), q))
+        except (ValueError, IndexError, TypeError):
+            return default
+
+    def _should_keep_online_episode(self, reward: float) -> bool:
+        if not np.isfinite(reward):
+            reward = float("-inf")
+        if len(self._online_return_history) < self.online_keep_min_samples:
+            return True
+        threshold = self._compute_online_quantile(self.online_keep_percentile, default=float("-inf"))
+        if threshold == float("-inf"):
+            return True
+        return reward >= threshold
+
+    def _maybe_update_offline_decay(self) -> None:
+        if self.offline_lock_ratio <= 0.0:
+            return
+        if self._offline_decay_triggered:
+            return
+
+        window = max(1, self.offline_improvement_window)
+        history = self._online_return_history
+        if len(history) < window:
+            return
+
+        recent_avg = float(np.mean(history[-window:]))
+        if not np.isfinite(recent_avg):
+            return
+
+        if self._offline_improvement_baseline is None:
+            baseline_slice = history[:window]
+            baseline = float(np.mean(baseline_slice))
+            if not np.isfinite(baseline):
+                return
+            self._offline_improvement_baseline = baseline
+            self._offline_improvement_votes = 0
+            if len(history) < window * 2:
+                return
+
+        baseline = self._offline_improvement_baseline
+        if baseline is None or not np.isfinite(baseline):
+            return
+
+        improvement = recent_avg - baseline
+        threshold_abs = max(
+            self.offline_improvement_min_delta,
+            abs(baseline) * self.offline_improvement_threshold,
+        )
+        if improvement >= threshold_abs:
+            self._offline_improvement_votes += 1
+            if self._offline_improvement_votes >= self.offline_improvement_patience:
+                self._offline_decay_triggered = True
+                self._offline_decay_trigger_update = self._total_update_counter
+                self._offline_improvement_baseline = recent_avg
+        else:
+            self._offline_improvement_votes = 0
+            if improvement < 0.0:
+                blend = 0.1
+                self._offline_improvement_baseline = (1.0 - blend) * baseline + blend * recent_avg
+
+    def _select_balanced_sequences(self, sequence_items, target_total):
+        if not sequence_items:
+            return []
+
+        total_available = len(sequence_items)
+        target_total = int(max(1, min(int(target_total), total_available)))
+
+        categories = {
+            "offline": [],
+            "recent": [],
+            "online_top": [],
+            "online_other": [],
+        }
+        for item in sequence_items:
+            categories.setdefault(item.get("category", "online_other"), []).append(item)
+
+        offline_candidates = sorted(
+            categories.get("offline", []), key=lambda x: x["quality"], reverse=True
+        )
+        recent_candidates = sorted(
+            categories.get("recent", []), key=lambda x: x.get("order", 0), reverse=True
+        )
+        online_top_candidates = sorted(
+            categories.get("online_top", []), key=lambda x: x["quality"], reverse=True
+        )
+        online_other_candidates = sorted(
+            categories.get("online_other", []), key=lambda x: x["quality"], reverse=True
+        )
+
+        offline_target = int(round(target_total * self.replay_offline_ratio))
+        if self.replay_offline_ratio > 0.0 and offline_candidates and offline_target <= 0:
+            offline_target = 1
+        offline_target = min(offline_target, len(offline_candidates), target_total)
+
+        recent_target = int(round(target_total * self.replay_recent_ratio))
+        if self.replay_recent_ratio > 0.0 and recent_candidates and recent_target <= 0:
+            recent_target = 1
+        recent_target = min(recent_target, len(recent_candidates))
+        if self.sequences_min_keep_recent > 0 and recent_candidates:
+            required_recent = min(self.sequences_min_keep_recent, len(recent_candidates))
+            if required_recent > recent_target:
+                recent_target = min(required_recent, target_total)
+
+        selected = []
+        used_indices = set()
+
+        for item in offline_candidates[:offline_target]:
+            selected.append(item)
+            used_indices.add(item["index"])
+
+        for item in recent_candidates[:recent_target]:
+            if item["index"] in used_indices:
+                continue
+            selected.append(item)
+            used_indices.add(item["index"])
+
+        remaining_slots = target_total - len(selected)
+        online_target = max(0, target_total - offline_target - recent_target)
+        online_selected = []
+        for item in online_top_candidates:
+            if len(online_selected) >= online_target or remaining_slots <= 0:
+                break
+            if item["index"] in used_indices:
+                continue
+            selected.append(item)
+            online_selected.append(item)
+            used_indices.add(item["index"])
+            remaining_slots -= 1
+
+        if remaining_slots > 0:
+            def _fill_from(pool):
+                nonlocal remaining_slots
+                for candidate in pool:
+                    if remaining_slots <= 0:
+                        break
+                    if candidate["index"] in used_indices:
+                        continue
+                    selected.append(candidate)
+                    used_indices.add(candidate["index"])
+                    remaining_slots -= 1
+
+            # Prioritize remaining offline, then top online, then recent, then fallback
+            _fill_from(offline_candidates[offline_target:])
+            _fill_from(online_top_candidates[len(online_selected):])
+            _fill_from(recent_candidates[recent_target:])
+            _fill_from(online_other_candidates)
+
+        if len(selected) > target_total:
+            selected = selected[:target_total]
+
+        return sorted(selected, key=lambda x: x["index"])
 
     def _match_feature_dim(self, array: np.ndarray, target_dim: int) -> np.ndarray:
         if array.shape[1] == target_dim:
@@ -1522,6 +1794,13 @@ class DecisionTransformer(MAT):
         # Update the stats cache so downstream summaries reflect the filtered set.
         self._offline_stats = kept_stats
         self._refresh_offline_pools(kept)
+        if kept_stats:
+            summary = summarize_dataset(kept_stats)
+            self._offline_summary = summary
+            self._update_target_bounds_from_summary(summary)
+        else:
+            self._offline_summary = None
+            self._update_target_bounds_from_summary(None)
         return kept, dropped, min_return, min_strehl
 
     def _refresh_offline_pools(self, episodes):
@@ -1550,21 +1829,138 @@ class DecisionTransformer(MAT):
         self._offline_elite = elite
         self._offline_reserve = reserve
 
+    def _update_target_bounds_from_summary(self, summary: Optional[dict]) -> None:
+        """Clamp online targets to stay close to the offline expert distribution."""
+
+        self._target_return_floor = None
+        self._target_return_ceiling = None
+        self._offline_return_baseline = None
+
+        if not summary:
+            return
+
+        baseline = None
+        quantiles = summary.get("q") if isinstance(summary, dict) else None
+        if isinstance(quantiles, dict) and quantiles:
+            key = f"{self.online_gain_quantile:.2f}"
+            if key in quantiles:
+                baseline = quantiles[key]
+            else:
+                try:
+                    parsed = {float(k): float(v) for k, v in quantiles.items()}
+                    nearest = min(parsed, key=lambda q: abs(q - self.online_gain_quantile))
+                    baseline = parsed[nearest]
+                except (ValueError, TypeError):
+                    baseline = None
+        if baseline is None:
+            baseline = summary.get("ret_mean") if isinstance(summary, dict) else None
+        try:
+            baseline = float(baseline)
+        except (TypeError, ValueError):
+            baseline = None
+        if baseline is None or not np.isfinite(baseline):
+            return
+
+        self._offline_return_baseline = baseline
+        magnitude = abs(baseline)
+        floor_mag = magnitude * self.online_gain_min
+        ceil_mag = magnitude * self.online_gain_max
+        desired_mag = magnitude * self.online_gain
+
+        if baseline >= 0.0:
+            floor_value = floor_mag
+            ceiling_value = ceil_mag
+            desired_value = desired_mag
+        else:
+            floor_value = -ceil_mag
+            ceiling_value = -floor_mag
+            if floor_value > ceiling_value:
+                floor_value, ceiling_value = ceiling_value, floor_value
+            desired_value = -desired_mag
+
+        if np.isfinite(floor_value):
+            self._target_return_floor = floor_value
+        if np.isfinite(ceiling_value):
+            self._target_return_ceiling = ceiling_value
+
+        if np.isfinite(desired_value):
+            if self._target_return_floor is not None:
+                desired_value = max(desired_value, self._target_return_floor)
+            if self._target_return_ceiling is not None:
+                desired_value = min(desired_value, self._target_return_ceiling)
+            self.target_return = desired_value
+
+        if self._target_return_floor is not None:
+            self.target_return = max(self.target_return, self._target_return_floor)
+        if self._target_return_ceiling is not None:
+            self.target_return = min(self.target_return, self._target_return_ceiling)
+
+        self.current_return = self.target_return
+        if self.return_floor_ratio > 0.0 and self.target_return > 0.0:
+            floor_ratio = self.return_floor_ratio * self.target_return
+            if self.current_return < floor_ratio:
+                self.current_return = floor_ratio
+        if self.return_clip > 0.0:
+            self.current_return = float(
+                np.clip(self.current_return, -self.return_clip, self.return_clip)
+            )
+
+        try:
+            print(
+                "[DecisionTransformer] Online target baseline {:.3f} -> target {:.3f} "
+                "(limits {:.3f}..{:.3f})".format(
+                    baseline,
+                    self.target_return,
+                    self._target_return_floor if self._target_return_floor is not None else float("nan"),
+                    self._target_return_ceiling if self._target_return_ceiling is not None else float("nan"),
+                )
+            )
+        except Exception:
+            pass
+
+    def _scheduled_offline_ratio(self) -> float:
+        if self.offline_lock_ratio <= 0.0:
+            return 0.0
+
+        updates = max(0, int(self._total_update_counter))
+        if updates < self.offline_lock_updates:
+            return self.offline_lock_ratio
+
+        if not self._offline_decay_triggered:
+            return self.offline_lock_ratio
+
+        start_update = self._offline_decay_trigger_update
+        if start_update is None or start_update < self.offline_lock_updates:
+            start_update = self.offline_lock_updates
+
+        if updates <= start_update:
+            return self.offline_lock_ratio
+
+        progress = (updates - start_update) / float(self.offline_decay_updates)
+        progress = max(0.0, min(progress, 1.0))
+        ratio = self.offline_lock_ratio + (self.offline_final_ratio - self.offline_lock_ratio) * progress
+        return min(max(ratio, 0.0), 1.0)
+
     def _current_offline_ratio(self):
         start = self.offline_mix_ratio_start
         final = self.offline_mix_ratio_final
         effective_base = max(self.offline_mix_ratio, start, final)
-        if effective_base <= 0.0:
+        scheduled = self._scheduled_offline_ratio()
+        if effective_base <= 0.0 and scheduled <= 0.0:
             return 0.0
 
         episode_idx = max(0, self._dt_episode_counter - 1)
 
         if episode_idx < self.offline_mix_ratio_warmup:
-            return start
+            base_ratio = start
+        else:
+            progress = (episode_idx - self.offline_mix_ratio_warmup) / float(self.offline_mix_ratio_decay)
+            progress = max(0.0, min(progress, 1.0))
+            base_ratio = start + (final - start) * progress
 
-        progress = (episode_idx - self.offline_mix_ratio_warmup) / float(self.offline_mix_ratio_decay)
-        progress = max(0.0, min(progress, 1.0))
-        return start + (final - start) * progress
+        base_ratio = max(base_ratio, self.offline_mix_ratio, final)
+        base_ratio = min(max(base_ratio, 0.0), 1.0)
+        return max(base_ratio, scheduled)
 
     def get_offline_summary(self):
         """Return aggregate statistics about loaded offline trajectories."""
@@ -1656,6 +2052,10 @@ class DecisionTransformer(MAT):
                 candidate = max(candidate, target_from_goal)
             if self.target_min is not None:
                 candidate = max(candidate, self.target_min)
+            if self._target_return_floor is not None:
+                candidate = max(candidate, self._target_return_floor)
+            if self._target_return_ceiling is not None:
+                candidate = min(candidate, self._target_return_ceiling)
 
             self.target_return = candidate
             self.current_return = self.target_return
@@ -1753,6 +2153,14 @@ class DecisionTransformer(MAT):
     # Learning
     # ------------------------------------------------------------------
     def update_parameters(self, memory, batch_size, _total_update, total_step):
+        self._total_update_counter += 1
+        try:
+            if _total_update is not None:
+                update_int = int(float(_total_update))
+                if update_int > self._total_update_counter:
+                    self._total_update_counter = update_int
+        except (TypeError, ValueError):
+            pass
         transitions = [transition for transition in getattr(memory, "buffer", []) if transition is not None]
         if self.replay_window > 0 and len(transitions) > self.replay_window:
             transitions = transitions[-self.replay_window:]
@@ -1794,45 +2202,49 @@ class DecisionTransformer(MAT):
         episode["quality_reward"] = quality_reward
         episode["quality_metric"] = quality_metric
 
-        self._insert_episode_sorted(self._best_reward_episodes, quality_metric, self.replay_episodes, episode)
-        self._insert_episode_sorted(self._best_strehl_episodes, avg_strehl, self.best_history_capacity, episode)
-        self._recent_episodes.append(episode)
+        is_offline_episode = bool(episode.get("is_offline"))
+        keep_episode = True
+        if not is_offline_episode:
+            keep_episode = self._should_keep_online_episode(quality_reward)
+            episode["is_low_weight"] = not keep_episode
+            if keep_episode:
+                self._record_online_return(quality_reward)
+        else:
+            episode["is_low_weight"] = False
 
-        sequences_states = []
-        sequences_actions = []
-        sequences_returns = []
-        sequences_masks = []
-        targets = []
-        sequence_quality = []
-        sequence_recent = []
-        sequence_offline = []
+        if keep_episode:
+            self._insert_episode_sorted(
+                self._best_reward_episodes, quality_metric, self.replay_episodes, episode
+            )
+            self._insert_episode_sorted(
+                self._best_strehl_episodes, avg_strehl, self.best_history_capacity, episode
+            )
+            if not is_offline_episode:
+                self._recent_episodes.append(episode)
+        else:
+            self._low_weight_episodes.append(episode)
 
         episodes_iterable = []
         seen_ids = set()
 
-        for _score, stored in self._best_reward_episodes:
-            ep_id = stored.get("episode_id")
+        def _append_episode(entry, is_recent=False, is_low_weight=False):
+            ep_id = entry.get("episode_id")
             if ep_id in seen_ids:
-                continue
-            episodes_iterable.append((stored, False))
+                return
+            episodes_iterable.append((entry, bool(is_recent), bool(is_low_weight)))
             seen_ids.add(ep_id)
+
+        for _score, stored in self._best_reward_episodes:
+            _append_episode(stored, False, stored.get("is_low_weight", False))
 
         for _score, stored in self._best_strehl_episodes:
-            ep_id = stored.get("episode_id")
-            if ep_id in seen_ids:
-                continue
-            episodes_iterable.append((stored, False))
-            seen_ids.add(ep_id)
+            _append_episode(stored, False, stored.get("is_low_weight", False))
 
         for stored in reversed(self._recent_episodes):
-            ep_id = stored.get("episode_id")
-            if ep_id in seen_ids:
-                continue
-            episodes_iterable.append((stored, True))
-            seen_ids.add(ep_id)
+            _append_episode(stored, True, stored.get("is_low_weight", False))
 
         offline_available = len(self._offline_elite) + len(self._offline_reserve)
-        offline_ratio = self._current_offline_ratio()
+        offline_ratio = max(self._current_offline_ratio(), self.replay_offline_ratio)
         if offline_ratio > 0.0 and offline_available:
             base_count = max(len(episodes_iterable), 1)
             desired = int(math.ceil(offline_ratio * base_count))
@@ -1853,13 +2265,21 @@ class DecisionTransformer(MAT):
                     else:
                         selection.extend(reserve_pool[:remaining])
                 for score, stored in selection:
-                    ep_id = stored.get("episode_id")
-                    if ep_id in seen_ids:
-                        continue
-                    episodes_iterable.append((stored, False))
-                    seen_ids.add(ep_id)
+                    _append_episode(stored, False, stored.get("is_low_weight", False))
 
-        for stored, is_recent in episodes_iterable:
+        for stored in reversed(self._low_weight_episodes):
+            _append_episode(stored, False, True)
+
+        top_reward_threshold = float("-inf")
+        if self.replay_online_top_percentile > 0.0:
+            quantile = max(0.0, 1.0 - self.replay_online_top_percentile)
+            top_reward_threshold = self._compute_online_quantile(quantile, default=float("-inf"))
+
+        sequence_items = []
+        sequence_index = 0
+        order_counter = 0
+
+        for stored, is_recent, is_low_weight in episodes_iterable:
             states_ep = stored["states"]
             actions_ep = stored["actions"]
             rewards_ep = stored["rewards"]
@@ -1867,6 +2287,20 @@ class DecisionTransformer(MAT):
 
             if states_ep.size == 0:
                 continue
+
+            episode_quality = float(stored.get("quality_reward", float(np.sum(rewards_ep))))
+            is_offline = bool(stored.get("is_offline"))
+            if is_offline:
+                category = "offline"
+            elif is_recent:
+                category = "recent"
+            else:
+                if top_reward_threshold == float("-inf") or episode_quality >= top_reward_threshold:
+                    category = "online_top"
+                else:
+                    category = "online_other"
+                if is_low_weight:
+                    category = "online_other"
 
             returns_ep = np.zeros_like(rewards_ep)
             running_return = 0.0
@@ -1879,6 +2313,10 @@ class DecisionTransformer(MAT):
             returns_scaled = returns_ep * self.return_scale
             if self.return_clip > 0.0:
                 returns_scaled = np.clip(returns_scaled, -self.return_clip, self.return_clip)
+
+            if not is_offline:
+                stored['hindsight_returns'] = returns_raw.astype(np.float32, copy=False)
+                stored['hindsight_returns_scaled'] = returns_scaled.astype(np.float32, copy=False)
 
             horizon = len(states_ep)
             for idx in range(0, horizon, self.sequence_stride):
@@ -1903,52 +2341,40 @@ class DecisionTransformer(MAT):
                     actions_pad[pad : pad + seq_actions.shape[0]] = seq_actions
                 actions_pad[-1] = 0.0
 
-                sequences_states.append(states_pad)
-                sequences_actions.append(actions_pad)
-                sequences_returns.append(returns_pad)
-                sequences_masks.append(mask_pad)
-                targets.append(actions_ep[idx])
-                sequence_quality.append(returns_raw[idx])
-                sequence_recent.append(1.0 if is_recent else 0.0)
-                sequence_offline.append(1.0 if stored.get("is_offline") else 0.0)
+                item = {
+                    "index": sequence_index,
+                    "states": states_pad,
+                    "actions": actions_pad,
+                    "returns": returns_pad,
+                    "mask": mask_pad,
+                    "target": actions_ep[idx],
+                    "quality": float(returns_raw[idx]),
+                    "is_recent": bool(is_recent),
+                    "is_offline": is_offline,
+                    "category": category,
+                    "order": order_counter,
+                }
+                sequence_items.append(item)
+                sequence_index += 1
+                order_counter += 1
 
-        if not sequences_states:
+        if not sequence_items:
             return
 
-        dataset_size = len(sequences_states)
-        if self.sequences_topk > 0 and dataset_size > self.sequences_topk:
-            quality_np = np.asarray(sequence_quality, dtype=np.float32)
-            selected_indices = []
-            if self.sequences_min_keep_recent > 0:
-                recent_indices = [
-                    idx
-                    for idx, is_recent in enumerate(sequence_recent)
-                    if is_recent
-                ]
-                if recent_indices:
-                    for idx in recent_indices[: self.sequences_min_keep_recent]:
-                        if idx not in selected_indices:
-                            selected_indices.append(idx)
-                        if len(selected_indices) >= self.sequences_topk:
-                            break
-            if len(selected_indices) < self.sequences_topk:
-                sorted_idx = list(np.argsort(quality_np)[::-1])
-                for idx in sorted_idx:
-                    if idx not in selected_indices:
-                        selected_indices.append(idx)
-                    if len(selected_indices) >= self.sequences_topk:
-                        break
-            if len(selected_indices) > self.sequences_topk:
-                selected_indices = selected_indices[: self.sequences_topk]
-            selected_indices = sorted(selected_indices)
-            sequences_states = [sequences_states[i] for i in selected_indices]
-            sequences_actions = [sequences_actions[i] for i in selected_indices]
-            sequences_returns = [sequences_returns[i] for i in selected_indices]
-            sequences_masks = [sequences_masks[i] for i in selected_indices]
-            targets = [targets[i] for i in selected_indices]
-            sequence_quality = [sequence_quality[i] for i in selected_indices]
-            sequence_recent = [sequence_recent[i] for i in selected_indices]
-            sequence_offline = [sequence_offline[i] for i in selected_indices]
+        total_sequences = len(sequence_items)
+        target_total = self.sequences_topk if self.sequences_topk > 0 else total_sequences
+        selected_items = self._select_balanced_sequences(sequence_items, target_total)
+        if not selected_items:
+            return
+
+        sequences_states = [item["states"] for item in selected_items]
+        sequences_actions = [item["actions"] for item in selected_items]
+        sequences_returns = [item["returns"] for item in selected_items]
+        sequences_masks = [item["mask"] for item in selected_items]
+        targets = [item["target"] for item in selected_items]
+        sequence_quality = [item["quality"] for item in selected_items]
+        sequence_recent = [1.0 if item["is_recent"] else 0.0 for item in selected_items]
+        sequence_offline = [1.0 if item["is_offline"] else 0.0 for item in selected_items]
 
         state_array = np.stack(sequences_states)
         action_array = np.stack(sequences_actions)

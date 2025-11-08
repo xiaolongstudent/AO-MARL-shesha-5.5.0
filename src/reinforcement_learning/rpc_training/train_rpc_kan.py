@@ -1168,6 +1168,15 @@ class SAC(object):
         self.policy_type = config.sac['policy']
         self.target_update_interval = config.sac['target_update_interval']
         self.automatic_entropy_tuning = config.sac['automatic_entropy_tuning']
+        self.target_entropy_scale = float(config.sac.get('target_entropy_scale', 1.0))
+        if not math.isfinite(self.target_entropy_scale):
+            self.target_entropy_scale = 1.0
+        self.target_entropy_scale = min(max(self.target_entropy_scale, 0.0), 1.5)
+        self.target_entropy_offset = float(config.sac.get('target_entropy_offset', 0.0))
+        if not math.isfinite(self.target_entropy_offset):
+            self.target_entropy_offset = 0.0
+        self.alpha_clip_min = config.sac.get('alpha_clip_min')
+        self.alpha_clip_max = config.sac.get('alpha_clip_max')
 
         self.initialize_last_layer_zero = config.sac['initialize_last_layer_0']
         self.initialize_last_layer_near_zero = config.sac['initialize_last_layer_near_0']
@@ -1219,7 +1228,9 @@ class SAC(object):
 
         if self.automatic_entropy_tuning is True:
             # TODO Changed from .Tensor to .tensor
-            target_entropy = -torch.prod(torch.tensor(action_space.shape).to(self.device)).item()
+            base_entropy = -torch.prod(torch.tensor(action_space.shape).to(self.device)).item()
+            scaled_entropy = base_entropy * self.target_entropy_scale + self.target_entropy_offset
+            target_entropy = float(scaled_entropy)
             log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
             alpha_optim = Adam([log_alpha], lr=self.lr)
 
@@ -1486,8 +1497,21 @@ class SAC(object):
             alpha_loss.backward()
             self.alpha_optim.step()
 
-            self.alpha = self.log_alpha.exp()
-            alpha_tlogs = self.alpha.clone()
+            alpha_value = self.log_alpha.exp()
+            if self.alpha_clip_min is not None or self.alpha_clip_max is not None:
+                min_val = (
+                    float(self.alpha_clip_min)
+                    if self.alpha_clip_min is not None
+                    else float("-inf")
+                )
+                max_val = (
+                    float(self.alpha_clip_max)
+                    if self.alpha_clip_max is not None
+                    else float("inf")
+                )
+                alpha_value = torch.clamp(alpha_value, min=min_val, max=max_val)
+            self.alpha = alpha_value
+            alpha_tlogs = alpha_value.detach()
         else:
             alpha_loss = torch.tensor(0.).to(self.device)
             alpha_tlogs = torch.tensor(self.alpha).item()  # For TensorboardX logs
