@@ -147,6 +147,10 @@ class RlSupervisor(CompassSupervisor):
         self.autoencoder = autoencoder
         self.freedom_vector_actuator_space = None
         self.freedom_vector = None
+        self.last_residual_action = None
+        self.last_residual_delta_modal = None
+        self._last_delta_modal = None
+        self._last_action_indices = None
 
         dms = []
         p_dms = []
@@ -237,6 +241,10 @@ class RlSupervisor(CompassSupervisor):
         """ Reset the simulation to return to its original state
         """
         self.past_command_rl = None
+        self.last_residual_action = None
+        self.last_residual_delta_modal = None
+        self._last_delta_modal = None
+        self._last_action_indices = None
         self.atmos.reset_turbu(self.current_seed)
         self.wfs.reset_noise(self.current_seed)
         for tar_index in range(len(self.config.p_targets)):
@@ -721,15 +729,53 @@ class RlSupervisor(CompassSupervisor):
         :return: None
         """
 
-        # Scale action
-        action = (action * self.config_rl.env_rl['normalization_std_inside_environment']) + \
-                 self.config_rl.env_rl['normalization_mean_inside_environment']
+        normalization_std = float(self.config_rl.env_rl['normalization_std_inside_environment'])
+        if abs(normalization_std) < 1e-12:
+            normalization_std = 1.0
+        normalization_mean = float(self.config_rl.env_rl['normalization_mean_inside_environment'])
+        scaled_action = (action * normalization_std) + normalization_mean
+
+        baseline_modal = self.volts2modes.dot(self.rtc.get_command(ncontrol))
 
         if self.config_rl.env_rl['level'] == "correction":
-            final_command = self.correction_control(action=action, ncontrol=ncontrol, evaluation_rl_full_action=evaluation_rl_full_action)
+            final_command = self.correction_control(
+                action=scaled_action,
+                ncontrol=ncontrol,
+                evaluation_rl_full_action=evaluation_rl_full_action,
+            )
         else:
             raise NotImplementedError
 
+        if self._last_delta_modal is None:
+            delta_modal = self.volts2modes.dot(final_command) - baseline_modal
+        else:
+            delta_modal = self._last_delta_modal
+
+        self.last_residual_delta_modal = delta_modal.astype(np.float64, copy=True)
+
+        if delta_modal is not None:
+            if self._last_action_indices is None:
+                relevant_delta = delta_modal
+                if self.freedom_vector is None:
+                    denom = np.ones_like(relevant_delta)
+                else:
+                    denom = self.freedom_vector
+            else:
+                relevant_delta = delta_modal[self._last_action_indices]
+                if self.freedom_vector is None:
+                    denom = np.ones_like(relevant_delta)
+                else:
+                    denom = self.freedom_vector[self._last_action_indices]
+            denom = np.asarray(denom, dtype=np.float64)
+            denom_safe = np.where(np.abs(denom) < 1e-12, 1.0, denom)
+            raw_action = np.asarray(relevant_delta, dtype=np.float64) / denom_safe
+            normalized_action = (raw_action - normalization_mean) / normalization_std
+            self.last_residual_action = normalized_action.astype(np.float32, copy=True)
+        else:
+            self.last_residual_action = np.asarray(action, dtype=np.float32)
+
+        self._last_delta_modal = None
+        self._last_action_indices = None
         self.rtc.set_command(ncontrol, final_command)
 
     #
@@ -797,7 +843,9 @@ class RlSupervisor(CompassSupervisor):
         """
 
         # 1. Btt basis starts with commands in modal space
-        final_command_modal = self.volts2modes.dot(self.rtc.get_command(ncontrol))
+        baseline_modal = self.volts2modes.dot(self.rtc.get_command(ncontrol))
+        final_command_modal = baseline_modal.copy()
+        action_indices = None
 
         if self.n_modes_start_end[0] < 0:
             # 2.a If we use all modes. Sum the action multiplied by the freedom vector.
@@ -806,6 +854,8 @@ class RlSupervisor(CompassSupervisor):
             # 2.b.1 If we do not use all the modes check how we discard them and build action_range
             # (a list with the modes we are using)
             action_range = self.obtain_action_range_modal(final_command_modal)
+            if not self.config_rl.env_rl['tt_treated_as_mode']:
+                action_indices = np.asarray(action_range, dtype=np.int64)
             if self.config_rl.env_rl['tt_treated_as_mode']:
                 final_command_modal += (action * self.freedom_vector)
             else:
@@ -814,6 +864,10 @@ class RlSupervisor(CompassSupervisor):
 
         # 3.b.2 We send the modes to actuator space
         final_command = self.modes2volts.dot(final_command_modal)
+
+        delta_modal = final_command_modal - baseline_modal
+        self._last_delta_modal = delta_modal.astype(np.float64, copy=True)
+        self._last_action_indices = action_indices
 
         return final_command
 

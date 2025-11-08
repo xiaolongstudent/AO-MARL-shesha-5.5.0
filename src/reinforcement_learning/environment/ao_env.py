@@ -100,6 +100,8 @@ class AoEnv(gym.Env):
         self.reward_type = config_rl.env_rl['reward_type']
         self.config_rl = config_rl
         self.verbose = config_rl.env_rl['verbose']
+        self.last_residual_action = None
+        self.last_residual_delta_modal = None
 
     def compass_init(self, config_rl, geo_policy_testing, initial_seed, build_cmat_with_modes, roket):
         """
@@ -339,6 +341,8 @@ class AoEnv(gym.Env):
         # a) Resets simulator, resets noise, resets iterations
         self.supervisor.reset()
         self.supervisor.iter = 0
+        self.last_residual_action = None
+        self.last_residual_delta_modal = None
 
         if not normalization_loop:
             # b) Resets wfs and dm history
@@ -943,6 +947,18 @@ class AoEnv(gym.Env):
                                       apply_control=apply_control,
                                       compute_tar_psf=compute_tar_psf
                                       )
+
+        residual_action = getattr(self.supervisor, "last_residual_action", None)
+        if residual_action is not None:
+            self.last_residual_action = np.asarray(residual_action, dtype=np.float32).copy()
+        else:
+            self.last_residual_action = None
+
+        residual_delta = getattr(self.supervisor, "last_residual_delta_modal", None)
+        if residual_delta is not None:
+            self.last_residual_delta_modal = np.asarray(residual_delta, dtype=np.float32).copy()
+        else:
+            self.last_residual_delta_modal = None
 
         r = self.calculate_reward()
         if len(self.supervisor.config.p_controllers) > 1 and geometric_do_control:
