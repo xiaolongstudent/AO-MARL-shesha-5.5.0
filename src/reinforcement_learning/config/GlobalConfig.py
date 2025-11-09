@@ -400,6 +400,16 @@ class Config:
         self.env_rl['check_every'] = int(config['env_rl_parameters']['check_every'])
         self.env_rl['move_atmos'] = str(config['env_rl_parameters']['move_atmos'])
         self.env_rl['max_steps_per_episode'] = int(config['env_rl_parameters']['max_steps_per_episode'])
+        training_eps_raw = config['env_rl_parameters'].get('training_episodes')
+        training_eps = None
+        if training_eps_raw is not None:
+            try:
+                training_eps = max(1, int(float(training_eps_raw)))
+            except (TypeError, ValueError):
+                training_eps = None
+        if training_eps is None:
+            training_eps = 1000
+        self.env_rl['training_episodes'] = training_eps
 
         # Parameters of telescope
 
