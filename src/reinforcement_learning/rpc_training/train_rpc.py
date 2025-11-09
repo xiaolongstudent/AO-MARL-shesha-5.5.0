@@ -200,7 +200,11 @@ class TrainerRPC:
         self.total_update, self.total_step = 0, 0
         self.num_test_episode, self.num_episode = 0, 0
         self.delayed_mdp_object = None
-        self.max_num_steps = 1e6  #最大步长
+        self.training_episode_limit = max(
+            1, int(config_rl.env_rl.get('training_episodes', 1000))
+        )
+        steps_per_episode = max(1, int(config_rl.env_rl['max_steps_per_episode']))
+        self.max_num_steps = int(self.training_episode_limit * steps_per_episode)
         self.save_networks_every_episodes = 50
 
         print("-----------------------------RPC TRAINING-----------------------------")
@@ -1044,7 +1048,10 @@ class TrainerRPC:
 
             self.manage_changing_conditions()
 
-            if self.total_step > self.max_num_steps:
+            if self.num_episode >= self.training_episode_limit:
+                break
+
+            if self.total_step >= self.max_num_steps:
                 break
 
     def episode(self):
