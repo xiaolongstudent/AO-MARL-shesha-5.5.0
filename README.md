@@ -133,6 +133,48 @@ For any new parameter file you want to create you need to optimise the gain and 
 python main.py src/reinforcement_learning/helper_functions/preprocessing/preprocessing_script.py --parameter_file "production_sh_10x10_2m.py"
 ```
 
+### 5. Integrating S3GM world models
+
+The Structured 3D Generative Model (S3GM) can now be plugged into the MARL
+training to densify partial observations and provide short-term forecasts of
+the WFS slopes. This improves robustness under noisy measurements while
+keeping the heavy generative model outside the hard real-time loop.
+
+1. **Offline stage**. Train/finetune S3GM with the official code base
+   ([CodeOcean capsule 3657631](https://codeocean.com/capsule/3657631/tree/v2)).
+   Export the model as a TorchScript checkpoint or create a python entry point
+   that builds the network inside the AO-MARL environment.
+2. **Online stage**. Enable the world model by passing `--s3gm_enabled True`
+   and point the simulator to the exported artefacts, e.g.:
+
+   ```bash
+   python main.py \
+       --parameters_telescope "production_sh_10x10_2m.py" \
+       --world-size 5 \
+       --experiment_name "training_with_s3gm" \
+       --s3gm_enabled True \
+       --s3gm_checkpoint /path/to/s3gm.ts \
+       --s3gm_prediction_horizon 2 \
+       --s3gm_latent_size 64 \
+       --s3gm_inference_interval 5
+   ```
+
+Key arguments:
+
+* `--s3gm_checkpoint`: TorchScript or pickled checkpoint exported from the
+  S3GM project.
+* `--s3gm_repo_path` and `--s3gm_entrypoint`: alternative to load the model
+  directly from the official repository (`module:callable` format).
+* `--s3gm_prediction_horizon`: number of future slope frames to include in the
+  RL state.
+* `--s3gm_latent_size`: dimension of latent descriptors appended to the state.
+* `--s3gm_inference_interval`: controls the online/offline split by lowering
+  the rate at which the world model is queried inside the control loop.
+
+The reconstructed slopes and the predicted future measurements are injected in
+the observation vector transparently, so any SAC configuration can benefit
+from the richer state without additional code changes.
+
 ## Acknowledgments
 
 We would like to thank user pranz24 for providing a working version of Soft Actor Critic in Pytorch in https://github.com/pranz24/pytorch-soft-actor-critic.

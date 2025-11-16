@@ -178,7 +178,21 @@ def parser_args(config):
 
     parser.add_argument("--do_more_evaluations", default=config.env_rl['do_more_evaluations'], type=str)
     parser.add_argument("--tt_treated_as_mode", default=config.env_rl['tt_treated_as_mode'], type=str)
-    
+
+    # S3GM world model options
+    parser.add_argument("--s3gm_enabled", default=config.s3gm['enabled'], type=str)
+    parser.add_argument("--s3gm_checkpoint", default=config.s3gm['checkpoint'], type=str)
+    parser.add_argument("--s3gm_repo_path", default=config.s3gm['repo_path'], type=str)
+    parser.add_argument("--s3gm_entrypoint", default=config.s3gm['entrypoint'], type=str)
+    parser.add_argument("--s3gm_device", default=config.s3gm['device'], type=str)
+    parser.add_argument("--s3gm_prediction_horizon", default=config.s3gm['prediction_horizon'], type=int)
+    parser.add_argument("--s3gm_latent_size", default=config.s3gm['latent_size'], type=int)
+    parser.add_argument("--s3gm_inference_interval", default=config.s3gm['inference_interval'], type=int)
+    parser.add_argument("--s3gm_use_prediction", default=config.s3gm['use_prediction'], type=str)
+    parser.add_argument("--s3gm_use_reconstruction", default=config.s3gm['use_reconstruction'], type=str)
+    parser.add_argument("--s3gm_reconstruction_blend", default=config.s3gm['reconstruction_blend'], type=float)
+    parser.add_argument("--s3gm_fallback_alpha", default=config.s3gm['fallback_alpha'], type=float)
+
     return parser
 
 

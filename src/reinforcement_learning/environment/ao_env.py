@@ -7,6 +7,7 @@ import pickle
 from collections import deque, OrderedDict
 import shesha.constants as scons
 from src.autoencoder.autoencoder_models import Autoencoder
+from src.reinforcement_learning.helper_functions.s3gm.world_model import S3GMWorldModel
 from scipy.ndimage.measurements import center_of_mass
 from shesha.util.utilities import load_config_from_file
 from src.reinforcement_learning.helper_functions.preprocessing.normalization.obtain_normalization \
@@ -90,6 +91,8 @@ class AoEnv(gym.Env):
 
         self.wfs_shape, self.dm_shape, self.observation_space, self.action_space \
             = self.define_state_action_space(config_rl)
+
+        self.s3gm_model = self.initialize_s3gm_model(config_rl)
 
         self.reward_type = config_rl.env_rl['reward_type']
         self.config_rl = config_rl
@@ -194,6 +197,14 @@ class AoEnv(gym.Env):
         state_size += wfs_shape[0] * config_rl.env_rl['number_of_previous_wfs']
         state_size += dm_shape[0] * config_rl.env_rl['number_of_previous_dm_residuals']
 
+        s3gm_conf = getattr(config_rl, 's3gm', None)
+        if s3gm_conf and s3gm_conf.get('enabled', False):
+            if s3gm_conf.get('use_prediction', True):
+                horizon = max(0, int(s3gm_conf.get('prediction_horizon', 1)))
+                state_size += horizon * wfs_shape[0]
+            latent_size = max(0, int(s3gm_conf.get('latent_size', 0)))
+            state_size += latent_size
+
         if config_rl.env_rl['state_dm_before_linear']:
             state_size += dm_shape[0]
         if config_rl.env_rl['state_dm_after_linear']:
@@ -250,6 +261,13 @@ class AoEnv(gym.Env):
         # TODO check if I can remove
         print("1. Parameter filename", arguments["<parameters_filename>"])
         return arguments
+
+    def initialize_s3gm_model(self, config_rl):
+        if not hasattr(config_rl, 's3gm'):
+            return None
+        if not config_rl.s3gm.get('enabled', False):
+            return None
+        return S3GMWorldModel(config_rl.s3gm, self.wfs_shape[0])
 
     def load_norm_parameters(self, config_rl):
         """
@@ -333,6 +351,8 @@ class AoEnv(gym.Env):
         # a) Resets simulator, resets noise, resets iterations
         self.supervisor.reset()
         self.supervisor.iter = 0
+        if self.s3gm_model is not None:
+            self.s3gm_model.reset()
 
         if not normalization_loop:
             # b) Resets wfs and dm history
@@ -584,6 +604,23 @@ class AoEnv(gym.Env):
                 s_wfs = self.standardise(s_wfs, key="wfs")
             s_next["wfs"] = s_wfs
         return s_next
+
+    def add_s3gm_features_to_state(self, s_next):
+        if self.s3gm_model is None:
+            return s_next
+        for key, value in self.s3gm_model.get_state_features().items():
+            s_next[key] = value
+        return s_next
+
+    def apply_s3gm_processing(self, s_wfs, s_dm_before_linear, s_dm_after_linear, s_dm_residual):
+        if self.s3gm_model is None:
+            return s_wfs
+        metadata = {
+            'dm_before_linear': np.array(s_dm_before_linear).copy() if s_dm_before_linear is not None else None,
+            'dm_after_linear': np.array(s_dm_after_linear).copy() if s_dm_after_linear is not None else None,
+            'dm_residual': np.array(s_dm_residual).copy() if s_dm_residual is not None else None
+        }
+        return self.s3gm_model.update(np.array(s_wfs).copy(), metadata=metadata)
 
     def calculate_reward(self, target=0, reward_type=None):
         """
@@ -904,12 +941,18 @@ class AoEnv(gym.Env):
             if self.supervisor.config.p_controllers[0].get_type() != "geo":
                 s_dm_residual = self.transform_state_to_zernike(s_dm_residual, return_reward=False)
 
+        s_wfs = self.apply_s3gm_processing(s_wfs,
+                                           s_dm_before_linear,
+                                           s_dm_after_linear,
+                                           s_dm_residual)
+
         s_next = OrderedDict()
 
         s_next = self.add_wfs_to_state(s_next, s_wfs)
         s_next = self.add_dm_to_state(s_next, s_dm_before_linear, s_dm_after_linear)
         if self.supervisor.config.p_controllers[0].get_type() != "geo":
             s_next = self.add_s_dm_residual_to_state(s_next, s_dm_residual)
+        s_next = self.add_s3gm_features_to_state(s_next)
         if return_dict:
             return s_next
         else:

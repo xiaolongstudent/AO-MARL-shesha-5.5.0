@@ -30,6 +30,12 @@ class Config:
         self.sac = dict()
         self.autoencoder = dict()
         self.env_rl = dict()
+        self.s3gm = dict()
+
+        def _to_bool(value):
+            if isinstance(value, bool):
+                return value
+            return str(value) == "True"
 
         self.cuda = True if config['cuda'] == "True" else False
         self.algorithm = str(config['algorithm'])
@@ -156,6 +162,21 @@ class Config:
         self.autoencoder['path'] = None #'output/autoencoder/save_model2.pth'  #None
         self.autoencoder['type'] = str(config_autoencoder['type'])
 
+        # 5) S3GM world model configuration
+        s3gm_cfg = config.get('s3gm_parameters', dict())
+        self.s3gm['enabled'] = _to_bool(s3gm_cfg.get('enabled', False))
+        self.s3gm['checkpoint'] = s3gm_cfg.get('checkpoint')
+        self.s3gm['repo_path'] = s3gm_cfg.get('repo_path')
+        self.s3gm['entrypoint'] = s3gm_cfg.get('entrypoint')
+        self.s3gm['device'] = s3gm_cfg.get('device', 'cpu')
+        self.s3gm['prediction_horizon'] = int(s3gm_cfg.get('prediction_horizon', 1))
+        self.s3gm['latent_size'] = int(s3gm_cfg.get('latent_size', 0))
+        self.s3gm['inference_interval'] = int(s3gm_cfg.get('inference_interval', 1))
+        self.s3gm['use_prediction'] = _to_bool(s3gm_cfg.get('use_prediction', True))
+        self.s3gm['use_reconstruction'] = _to_bool(s3gm_cfg.get('use_reconstruction', True))
+        self.s3gm['reconstruction_blend'] = float(s3gm_cfg.get('reconstruction_blend', 0.5))
+        self.s3gm['fallback_alpha'] = float(s3gm_cfg.get('fallback_alpha', 0.25))
+
         # Loading previous weights/replay
 
         self.env_rl['load_previous_weights'] = str(config['env_rl_parameters']['load_previous_weights'])
@@ -180,6 +201,7 @@ class Config:
         self.update_env(args)
 
         self.update_autoencoder(args)
+        self.update_s3gm(args)
 
         self.strings_to_bools()
 
@@ -292,6 +314,20 @@ class Config:
         self.autoencoder['path'] = args.autoencoder_path
         self.autoencoder['type'] = str(args.autoencoder_type)
 
+    def update_s3gm(self, args):
+        self.s3gm['enabled'] = True if str(args.s3gm_enabled) == "True" else False
+        self.s3gm['checkpoint'] = None if args.s3gm_checkpoint in [None, "None", ""] else args.s3gm_checkpoint
+        self.s3gm['repo_path'] = None if args.s3gm_repo_path in [None, "None", ""] else args.s3gm_repo_path
+        self.s3gm['entrypoint'] = None if args.s3gm_entrypoint in [None, "None", ""] else args.s3gm_entrypoint
+        self.s3gm['device'] = args.s3gm_device
+        self.s3gm['prediction_horizon'] = max(0, int(args.s3gm_prediction_horizon))
+        self.s3gm['latent_size'] = max(0, int(args.s3gm_latent_size))
+        self.s3gm['inference_interval'] = max(1, int(args.s3gm_inference_interval))
+        self.s3gm['use_prediction'] = True if str(args.s3gm_use_prediction) == "True" else False
+        self.s3gm['use_reconstruction'] = True if str(args.s3gm_use_reconstruction) == "True" else False
+        self.s3gm['reconstruction_blend'] = float(args.s3gm_reconstruction_blend)
+        self.s3gm['fallback_alpha'] = float(args.s3gm_fallback_alpha)
+
     def strings_to_bools(self):
         for key, item in self.env_rl.items():
             print(type(item), key, item)
@@ -314,6 +350,12 @@ class Config:
                 self.sac[key] = False
                 if self.env_rl['verbose']:
                     print("correcting,", key, "to False")
+
+        for key, item in self.s3gm.items():
+            if item == "True":
+                self.s3gm[key] = True
+            elif item == "False":
+                self.s3gm[key] = False
 
 
     def set_original_gain(self, gain):
